@@ -1,3 +1,5 @@
+import json
+
 from src.agent.agent import agent_registry
 from src.tools.tools import define_toolkit, description
 
@@ -27,8 +29,8 @@ dispatching_instructions = {
         args=[("agent", f"The agent to dispatch.")],
         returns=[
             (
-                "str | None",
-                "The agent to dispatch. If the agent is not found or invalid, returns None.",
+                "dict[str, str | None]",
+                "The agent to dispatch. If the agent is not found or invalid, returns {agent_to_dispatch: None}.",
             )
         ],
     )
@@ -36,6 +38,6 @@ dispatching_instructions = {
 def dispatch_agent(agent: str) -> str | None:
     print(f"Dispatching `{agent}` agent...")
     if agent not in agent_registry.keys() and agent != "master":
-        return None
+        return json.dumps({"agent_to_dispatch": None})
 
-    return agent
+    return json.dumps({"agent_to_dispatch": agent})

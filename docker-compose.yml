@@ -39,7 +39,7 @@ services:
     networks:
       - internal
     cap_drop:
-      - NET_ADMIN  # Drop network admin capabilities to prevent outbound requests
+      - NET_ADMIN
 
   ollama-unsafe:
     image: ollama/ollama

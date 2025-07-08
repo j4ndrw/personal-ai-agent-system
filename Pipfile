@@ -8,6 +8,7 @@ ddgs = "*"
 ollama = "*"
 fastapi = {extras = ["standard"], version = "*"}
 pydantic = "*"
+beautifulsoup4 = "*"
 
 [dev-packages]
 black = "*"

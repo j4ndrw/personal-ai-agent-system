@@ -1,10 +1,9 @@
 from typing import Callable
 
 from ollama import Message
-from src.agent.agent import register_agent
-from src.constants import (CHAT_MODEL, HELP_MODEL, MASTER_MODEL,
-                           WEB_SEARCH_MODEL)
 
+from src.agent.agent import register_agent
+from src.constants import CHAT_MODEL, HELP_MODEL, MASTER_MODEL, WEB_SEARCH_MODEL
 
 help_agent = register_agent(
     name="help",

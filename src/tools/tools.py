@@ -97,12 +97,12 @@ def _update_function_docstring(
         wrapper.__doc__ = f"\n    ---"
         wrapper.__doc__ = f"{description.details}"
         if len(description.args) > 0:
-            wrapper.__doc__ += "\n\n    Args"
+            wrapper.__doc__ += "\n\n    Args: \n        "
             wrapper.__doc__ += "\n        ".join(
                 [*map(lambda arg: f"{arg[0]}: {arg[1]}", description.args)]
             )
         if len(description.returns) > 0:
-            wrapper.__doc__ += "\n\n    Returns"
+            wrapper.__doc__ += "\n\n    Returns: \n        "
             wrapper.__doc__ += "\n        ".join(
                 [*map(lambda ret: f"{ret[0]}: {ret[1]}", description.returns)]
             )
