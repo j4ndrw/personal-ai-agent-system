@@ -1,0 +1,5 @@
+HELP_MODEL = "qwen3:1.7b"
+CHAT_MODEL = "qwen3:1.7b"
+WEB_SEARCH_MODEL = "qwen3:1.7b"
+UTILITY_MODEL = "qwen3:1.7b"
+MASTER_MODEL = "qwen3:1.7b"
