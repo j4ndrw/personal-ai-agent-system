@@ -4,12 +4,11 @@ from typing import Callable
 
 from ollama import Message
 
+from src.client import ollama_client
 from src.tools.tools import ToolHandlers, ToolRepository, load_toolkits
 from src.utils import load_model
-from src.client import ollama_client
 
-agents: dict[str, Callable[[list[Message]], list[Message]]] = {}
-
+agent_registry: dict[str, Callable[[list[Message]], tuple[list[Message], str | None]]] = {}
 
 def register_agent(
     *,
@@ -21,14 +20,21 @@ def register_agent(
     loaded_toolkits = (
         load_toolkits(
             os.path.join(".", "src", "tools", "toolkits"),
-            list(map(lambda toolkit: f"{toolkit}.py", toolkits)),  # pyright: ignore
+            list(
+                map(lambda toolkit: f"{toolkit}.py", toolkits or [])
+            ),  # pyright: ignore
         )
-        if toolkits is None or len(toolkits) == 0
+        if toolkits is not None and len(toolkits) > 0
         else []
     )
     load_model(model=model)
 
-    def run_agent(history: list[Message]) -> list[Message]:
+
+    def run_agent(history: list[Message]) -> tuple[list[Message], str | None]:
+        print(f"Running {name} agent...")
+
+        dispatched_agent = None
+
         history_snapshot = [*history]
 
         tool_repository: ToolRepository = {}
@@ -54,7 +60,7 @@ def register_agent(
 
         if len(tool_calls) == 0:
             new_history = [*new_history, chat(None).message]
-            return new_history
+            return new_history, dispatched_agent
 
         found_tool = False
         for tool_call in tool_calls:
@@ -71,6 +77,9 @@ def register_agent(
                         role="tool", content=json.dumps(result), tool_calls=[tool_call]
                     )
                     new_history = [*new_history, tool_message]
+
+                    if tool.__name__ == "dispatch_agent":
+                        dispatched_agent = result
                     break
 
         if found_tool:
@@ -81,9 +90,9 @@ def register_agent(
                     messages=[*history_snapshot, *new_history],
                 ).message,
             ]
-        return new_history
+        return new_history, dispatched_agent
 
     run_agent.name = name  # pyright: ignore
     run_agent.when_to_dispatch = when_to_dispatch  # pyright: ignore
-    agents[name] = run_agent
+    agent_registry[name] = run_agent
     return run_agent

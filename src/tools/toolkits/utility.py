@@ -1,4 +1,4 @@
-from src.agent.agent import agents
+from src.agent.agent import agent_registry
 from src.tools.tools import define_toolkit, description
 
 tool, _, register_toolkit = define_toolkit()
@@ -19,7 +19,7 @@ tool, _, register_toolkit = define_toolkit()
     )
 )
 def dispatch_agent(agent: str) -> str | None:
-    if agent not in agents.keys() and agent != "master":
+    if agent not in agent_registry.keys() and agent != "master":
         return None
 
     return agent

@@ -1,13 +1,13 @@
-from src.agent.agent import agents
+from src.agent.agent import agent_registry
 from src.tools.tools import define_toolkit, description
 
 tool, _, register_toolkit = define_toolkit()
 
-agent_names = list(filter(lambda agent: agent != "master", agents.keys()))
+agent_names = list(filter(lambda agent: agent != "master", agent_registry.keys()))
 dispatching_instructions = {
     "\n".join(
         [
-            f"Dispatch {agent_name} when {agents[agent_names].when_to_dispatch}"  # pyright: ignore
+            f"Dispatch {agent_name} when {agent_registry[agent_name].when_to_dispatch}"  # pyright: ignore
             for agent_name in agent_names
         ]
     )
@@ -34,7 +34,8 @@ dispatching_instructions = {
     )
 )
 def dispatch_agent(agent: str) -> str | None:
-    if agent not in agents.keys() and agent != "master":
+    print(f"Dispatching `{agent}` agent...")
+    if agent not in agent_registry.keys() and agent != "master":
         return None
 
     return agent
