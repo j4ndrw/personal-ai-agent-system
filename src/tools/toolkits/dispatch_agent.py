@@ -35,9 +35,9 @@ dispatching_instructions = {
         ],
     )
 )
-def dispatch_agent(agent: str) -> str | None:
+def dispatch_agent(agent: str) -> dict[str, str | None]:
     print(f"Dispatching `{agent}` agent...")
     if agent not in agent_registry.keys() and agent != "master":
-        return json.dumps({"agent_to_dispatch": None})
+        return {"agent_to_dispatch": None}
 
-    return json.dumps({"agent_to_dispatch": agent})
+    return {"agent_to_dispatch": agent}

@@ -93,14 +93,14 @@ def register_agent(
                         )
                         success = True
                         result = tool(*args(tool_call))
-                        answer.tool_result_message = Message(
+                        answer.tool_result_message[tool.__name__] = Message(
                             role="tool",
-                            content=json.dumps(result),
+                            content=json.dumps(result, indent=4),
                             tool_calls=[tool_call],
                         )
 
                         if tool.__name__ == "dispatch_agent":
-                            dispatched_agent = json.loads(result)["agent_to_dispatch"]
+                            dispatched_agent = result["agent_to_dispatch"]
                         break
 
             return success, dispatched_agent
@@ -115,7 +115,10 @@ def register_agent(
                         for message in [
                             answer.agentic_message,
                             answer.non_agentic_message,
-                            answer.tool_result_message,
+                            *[
+                                message
+                                for message in answer.tool_result_message.values()
+                            ],
                         ]
                         if message is not None
                     ],

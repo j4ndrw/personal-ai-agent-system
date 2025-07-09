@@ -17,7 +17,4 @@ _, resource, register_toolkit = define_toolkit()
     )
 )
 def help() -> list[str]:
-    return [
-        "@web <QUERY> - Searches for something on the web.",
-        "@utility #delete-conversation - Deletes the current conversation with the AI",
-    ]
+    return ["Search the web"]

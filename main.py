@@ -10,6 +10,7 @@ from src.history import history
 from src.models.agent.answer import Answer
 from src.models.requests.chat import Chat
 from src.prompts import system_message
+from src.utils import combined_response
 
 app = FastAPI()
 app.add_middleware(
@@ -25,7 +26,6 @@ app.add_middleware(
 async def chat(request: Chat):
     if len(history) == 0:
         history.append(system_message())
-    ephemeral_history: list[ollama.Message] = []
 
     print(f"USER: {request.user_prompt}")
     user_message = ollama.Message(role="user", content=request.user_prompt)
@@ -41,7 +41,7 @@ async def chat(request: Chat):
             for message in [
                 answer.agentic_message,
                 answer.non_agentic_message,
-                answer.tool_result_message,
+                *[message for message in answer.tool_result_message.values()],
                 answer.interpretation_message,
                 answer.dispatch_message,
             ]
@@ -58,37 +58,6 @@ async def chat(request: Chat):
         agent = agent_registry[dispatched_agent]
 
     return Response(
-        json.dumps(
-            [
-                {
-                    "agentic_message": (
-                        answer.agentic_message.content
-                        if answer.agentic_message is not None
-                        else None
-                    ),
-                    "non_agentic_message": (
-                        answer.non_agentic_message.content
-                        if answer.non_agentic_message is not None
-                        else None
-                    ),
-                    "tool_result_message": (
-                        answer.tool_result_message.content
-                        if answer.tool_result_message is not None
-                        else None
-                    ),
-                    "interpretation_message": (
-                        answer.interpretation_message.content
-                        if answer.interpretation_message is not None
-                        else None
-                    ),
-                    "dispatch_message": (
-                        answer.dispatch_message.content
-                        if answer.dispatch_message is not None
-                        else None
-                    ),
-                }
-                for answer in answers
-            ]
-        ),
+        json.dumps([{"message": combined_response(answer)} for answer in answers]),
         media_type="text/plain",
     )

@@ -1,7 +1,3 @@
-networks:
-  internal:
-    driver: bridge
-
 services:
   server:
     build:
@@ -18,8 +14,10 @@ services:
     depends_on:
       - ollama-sandbox
       - ollama-unsafe
+      - searxng
+      - redis
     networks:
-      - internal
+      - paias
 
   ollama-sandbox:
     image: ollama/ollama
@@ -37,7 +35,7 @@ services:
       - OLLAMA_HOST=0.0.0.0:11435
       - NO_PROXY=localhost,127.0.0.1
     networks:
-      - internal
+      - paias
     cap_drop:
       - NET_ADMIN
 
@@ -55,7 +53,48 @@ services:
     environment:
       - OLLAMA_HOST=0.0.0.0:11434
     networks:
-      - internal
+      - paias
+
+  redis:
+    container_name: paias-redis
+    image: docker.io/valkey/valkey:8-alpine
+    command: valkey-server --save 30 1 --loglevel warning
+    restart: unless-stopped
+    networks:
+      - paias
+    volumes:
+      - valkey-data2:/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+        max-file: "1"
+
+  searxng:
+    container_name: paias-searxng
+    image: docker.io/searxng/searxng:latest
+    restart: unless-stopped
+    networks:
+      - paias
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./searxng-docker/searxng:/etc/searxng:rw
+      - searxng-data:/var/cache/searxng:rw
+    environment:
+      - SEARXNG_BASE_URL=http://${SEARXNG_HOSTNAME:-localhost}/
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+        max-file: "1"
 
 volumes:
+  valkey-data2:
+  searxng-data:
   ollama:
+
+networks:
+  paias:
+    name: paias
+    external: true

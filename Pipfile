@@ -9,6 +9,8 @@ ollama = "*"
 fastapi = {extras = ["standard"], version = "*"}
 pydantic = "*"
 beautifulsoup4 = "*"
+readability-lxml = "*"
+requests = "*"
 
 [dev-packages]
 black = "*"
