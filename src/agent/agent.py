@@ -5,18 +5,21 @@ from typing import Callable
 from ollama import Message
 
 from src.client import ollama_client
+from src.constants import INTERPRETATION_MODEL, NON_AGENTIC_MODEL, ROUTER_MODEL
 from src.models.agent.answer import Answer
+from src.models.chat.options import Options
 from src.tools.tools import ToolHandlers, ToolRepository, load_toolkits
 from src.utils import load_model
 
-agent_registry: dict[str, Callable[[list[Message]], tuple[Answer, str | None]]] = {}
+agent_registry: dict[
+    str, Callable[[list[Message], Options | None], tuple[Answer, str | None]]
+] = {}
 
 
 def register_agent(
     *,
     name: str,
     when_to_dispatch: str = "",
-    model: str,
     toolkits: list[str] | None = None,
 ):
     loaded_toolkits = (
@@ -29,7 +32,9 @@ def register_agent(
         if toolkits is not None and len(toolkits) > 0
         else []
     )
-    load_model(model=model)
+
+    for model in [ROUTER_MODEL, INTERPRETATION_MODEL, NON_AGENTIC_MODEL]:
+        load_model(model=model)
 
     tool_repository: ToolRepository = {}
     tool_handlers: ToolHandlers = {}
@@ -37,15 +42,38 @@ def register_agent(
         tool_repository = {**tool_repository, **toolkit.repository}
         tool_handlers = {**tool_handlers, **toolkit.handlers}
 
-    def chat(*, history: list[Message], with_tools: bool, think: bool):
+    def chat(
+        *,
+        history: list[Message],
+        model: str,
+        with_tools: bool,
+        think: bool,
+        options: Options | None = None,
+    ):
+        _options = (
+            {
+                "temperature": options.temperature,
+                "max_tokens": options.max_tokens,
+                "n": options.n,
+                "presence_penalty": options.presence_penalty,
+                "frequency_penalty": options.frequency_penalty,
+                "top_p": options.top_p,
+            }
+            if options is not None
+            else None
+        )
         return ollama_client.chat(
             model=model,
             messages=history,
             think=think,
+            stream=False,
             tools=None if not with_tools else [*tool_repository.values()],
+            options=_options,
         )
 
-    def run_agent(history: list[Message]) -> tuple[Answer, str | None]:
+    def run_agent(
+        history: list[Message], options: Options | None = None
+    ) -> tuple[Answer, str | None]:
         print(f"Running `{name}` agent...")
         answer = Answer()
 
@@ -53,7 +81,13 @@ def register_agent(
             print(
                 "\t[ROUTING] Determining whether the response should be agentic or not..."
             )
-            message = chat(history=history, with_tools=True, think=True).message
+            message = chat(
+                history=history,
+                model=ROUTER_MODEL,
+                with_tools=True,
+                think=True,
+                options=options,
+            ).message
 
             print(
                 f"\t[TOOL CALL] Detected tool calls: {[tool_call.function.name for tool_call in (message.tool_calls or [])]}"
@@ -73,7 +107,11 @@ def register_agent(
         def non_agentic_response():
             print("\t[NON-AGENTIC] Appending non-agentic response...")
             answer.non_agentic_message = chat(
-                history=history, with_tools=False, think=False
+                history=history,
+                model=NON_AGENTIC_MODEL,
+                with_tools=False,
+                think=False,
+                options=options,
             ).message
 
         def try_to_execute_tool_calls(tool_calls: list[Message.ToolCall]):
@@ -123,8 +161,10 @@ def register_agent(
                         if message is not None
                     ],
                 ],
+                model=INTERPRETATION_MODEL,
                 with_tools=False,
                 think=False,
+                options=options,
             ).message
 
         def force_dispatch_to_other_agent(agent: str):

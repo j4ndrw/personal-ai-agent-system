@@ -1,18 +1,11 @@
 from pydantic import BaseModel
 
 
-class Message(BaseModel):
-    role: str
-    content: str
-
-
-class Chat(BaseModel):
+class Options(BaseModel):
     temperature: int
     max_tokens: int
     stream: bool
-    model: str
     n: int
-    messages: list[Message]
     presence_penalty: int
     frequency_penalty: int
     top_p: int

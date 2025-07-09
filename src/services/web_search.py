@@ -34,9 +34,8 @@ def search(query: str, max_results: int) -> list[dict[str, str]] | None:
 
     contexts: list[dict[str, str]] = []
     visited_index = 0
-    while (
-        len(contexts) < min(max_results, len(results))
-        and visited_index < len(results)
+    while len(contexts) < min(max_results, len(results)) and visited_index < len(
+        results
     ):
         if len(results) == 0:
             break

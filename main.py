@@ -1,13 +1,15 @@
 import json
+from typing import Any
 
 import ollama
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.agent.agent import agent_registry
 from src.agent.agents import master_agent
 from src.history import history
 from src.models.agent.answer import Answer
+from src.models.chat.options import Options
 from src.models.requests.chat import Chat
 from src.prompts import system_message
 from src.utils import combined_response
@@ -22,19 +24,28 @@ app.add_middleware(
 )
 
 
-@app.post("/api/chat")
+@app.post("/api/v1/chat/completions")
 async def chat(request: Chat):
     if len(history) == 0:
         history.append(system_message())
 
-    print(f"USER: {request.user_prompt}")
-    user_message = ollama.Message(role="user", content=request.user_prompt)
+    options = Options(
+        temperature=request.temperature,
+        max_tokens=request.max_tokens,
+        stream=request.stream,
+        n=request.n,
+        presence_penalty=request.presence_penalty,
+        frequency_penalty=request.frequency_penalty,
+        top_p=request.top_p,
+    )
+
+    user_message = ollama.Message(role="user", content=request.messages[-1].content)
     history.append(user_message)
 
     agent = master_agent
     answers: list[Answer] = []
     while True:
-        answer, dispatched_agent = agent(history)
+        answer, dispatched_agent = agent(history, options)
         answers.append(answer)
         ai_messages = [
             message
@@ -58,6 +69,8 @@ async def chat(request: Chat):
         agent = agent_registry[dispatched_agent]
 
     return Response(
-        json.dumps([{"message": combined_response(answer)} for answer in answers]),
+        json.dumps(
+            [{"message": combined_response(answer)} for answer in reversed(answers)]
+        ),
         media_type="text/plain",
     )

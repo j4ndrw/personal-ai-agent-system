@@ -1,6 +1,5 @@
-HELP_MODEL = "qwen3:4b"
-CHAT_MODEL = "qwen3:4b"
-WEB_SEARCH_MODEL = "qwen3:4b"
-MASTER_MODEL = "qwen3:4b"
+ROUTER_MODEL = "qwen3:4b"
+NON_AGENTIC_MODEL = "llama3.2:1b"
+INTERPRETATION_MODEL = "qwen3:0.6b"
 
 SEARXNG_HOST = "http://searxng:8080"
