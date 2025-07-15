@@ -9,7 +9,7 @@ tool, resource, register_toolkit = define_toolkit()
 @resource.create(
     description=description(
         """
-        Searches for information using the DuckDuckGo search engine.
+        Searches for information on the web
         IMPORTANT: Make sure you always cite your sources!
         """,
         args=[

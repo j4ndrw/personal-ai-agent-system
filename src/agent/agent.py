@@ -7,13 +7,10 @@ from ollama import Message
 from src.client import ollama_client
 from src.constants import INTERPRETATION_MODEL, NON_AGENTIC_MODEL, ROUTER_MODEL
 from src.models.agent.answer import Answer
-from src.models.chat.options import Options
 from src.tools.tools import ToolHandlers, ToolRepository, load_toolkits
 from src.utils import load_model
-
-agent_registry: dict[
-    str, Callable[[list[Message], Options | None], tuple[Answer, str | None]]
-] = {}
+from src.tools.toolkits.router import dispatch_agent, mark_task_as_done
+from src.agent.registry import agent_registry
 
 
 def register_agent(
@@ -48,50 +45,47 @@ def register_agent(
         model: str,
         with_tools: bool,
         think: bool,
-        options: Options | None = None,
-    ):
-        _options = (
-            {
-                "temperature": options.temperature,
-                "max_tokens": options.max_tokens,
-                "n": options.n,
-                "presence_penalty": options.presence_penalty,
-                "frequency_penalty": options.frequency_penalty,
-                "top_p": options.top_p,
-            }
-            if options is not None
-            else None
-        )
-        return ollama_client.chat(
+        on_token: Callable[[str], None],
+    ) -> Message:
+        final_message: Message = Message(role="assistant")
+        stream = ollama_client.chat(
             model=model,
             messages=history,
             think=think,
-            stream=False,
+            stream=True,
             tools=None if not with_tools else [*tool_repository.values()],
-            options=_options,
         )
+        for chunk in stream:
+            if chunk.message.content:
+                on_token(chunk.message.content)
+                final_message.content = (
+                    final_message.content + chunk.message.content
+                    if final_message.content
+                    else chunk.message.content
+                )
+            if chunk.message.tool_calls:
+                for tool_call in chunk.message.tool_calls:
+                    final_message.tool_calls = (
+                        [tool_call]
+                        if final_message.tool_calls is None
+                        else [*final_message.tool_calls, tool_call]
+                    )
+        return final_message
 
     def run_agent(
-        history: list[Message], options: Options | None = None
-    ) -> tuple[Answer, str | None]:
-        print(f"Running `{name}` agent...")
+        history: list[Message], on_token: Callable[[str], None]
+    ) -> tuple[Answer, str | None, bool]:
         answer = Answer()
 
         def maybe_agentic_response():
-            print(
-                "\t[ROUTING] Determining whether the response should be agentic or not..."
-            )
             message = chat(
                 history=history,
                 model=ROUTER_MODEL,
                 with_tools=True,
                 think=True,
-                options=options,
-            ).message
-
-            print(
-                f"\t[TOOL CALL] Detected tool calls: {[tool_call.function.name for tool_call in (message.tool_calls or [])]}"
+                on_token=on_token,
             )
+
             tool_calls = [
                 *filter(
                     lambda tool_call: tool_call.function.name in tool_repository,
@@ -105,18 +99,20 @@ def register_agent(
             return tool_calls, is_agentic
 
         def non_agentic_response():
-            print("\t[NON-AGENTIC] Appending non-agentic response...")
+            is_task_done = True
             answer.non_agentic_message = chat(
                 history=history,
                 model=NON_AGENTIC_MODEL,
                 with_tools=False,
                 think=False,
-                options=options,
-            ).message
+                on_token=on_token,
+            )
+            return is_task_done
 
         def try_to_execute_tool_calls(tool_calls: list[Message.ToolCall]):
             success = False
             dispatched_agent = None
+            is_task_done = False
 
             for tool_call in tool_calls:
                 function_to_call: Callable | None = tool_repository.get(
@@ -126,9 +122,6 @@ def register_agent(
                     continue
                 for [tool, args] in tool_handlers.items():
                     if function_to_call.__name__ == tool.__name__:
-                        print(
-                            "\t[AGENTIC] Tool found - appending result of tool call to history..."
-                        )
                         success = True
                         result = tool(*args(tool_call))
                         answer.tool_result_message[tool.__name__] = Message(
@@ -137,14 +130,15 @@ def register_agent(
                             tool_calls=[tool_call],
                         )
 
-                        if tool.__name__ == "dispatch_agent":
+                        if tool.__name__ == dispatch_agent.__name__:
                             dispatched_agent = result["agent_to_dispatch"]
+                        if tool.__name__ == mark_task_as_done.__name__:
+                            is_task_done = result
                         break
 
-            return success, dispatched_agent
+            return success, dispatched_agent, is_task_done
 
         def interpret_tool_call_result():
-            print("\t[NON-AGENTIC] Appending interpretation of tool to history...")
             answer.interpretation_message = chat(
                 history=[
                     *history,
@@ -164,11 +158,10 @@ def register_agent(
                 model=INTERPRETATION_MODEL,
                 with_tools=False,
                 think=False,
-                options=options,
-            ).message
+                on_token=on_token,
+            )
 
         def force_dispatch_to_other_agent(agent: str):
-            print(f"\t[DISPATCH] Forcing dispatch to `{agent}` agent...")
             answer.dispatch_message = Message(
                 role="assistant",
                 content=f"I need to delegate the task to the `{agent}` agent and determine what tool call to use, if applicable, and proceed from there...",
@@ -178,19 +171,35 @@ def register_agent(
             tool_calls, is_agentic = maybe_agentic_response()
 
             if not is_agentic:
-                non_agentic_response()
-                return answer, None
+                is_task_done = non_agentic_response()
+                return answer, None, is_task_done
 
-            success, dispatched_agent = try_to_execute_tool_calls(tool_calls)
+            success, dispatched_agent, is_task_done = try_to_execute_tool_calls(
+                tool_calls
+            )
             if success:
                 if dispatched_agent:
                     force_dispatch_to_other_agent(dispatched_agent)
                 else:
                     interpret_tool_call_result()
 
-            return answer, dispatched_agent
+            return answer, dispatched_agent, is_task_done
 
         return pipeline()
+
+    def check_if_task_is_done(history: list[Message]):
+        content = f"""
+Before proceeding I need to determine if the task is done. If it is done, I will call the {mark_task_as_done.__name__} function."
+Definitions of done include:
+- The user's question was answered
+- The task was completed successfully
+- There are no other paths to solve the problem at hand
+        """
+        is_done_message = Message(
+            role="assistant",
+            content=content,
+        )
+        history.append(is_done_message)
 
     run_agent.name = name  # pyright: ignore
     run_agent.when_to_dispatch = when_to_dispatch  # pyright: ignore
@@ -198,6 +207,51 @@ def register_agent(
         tool_name: tool_repository[tool_name].__doc__
         for tool_name in tool_repository.keys()
     }
+    run_agent.check_if_task_is_done = check_if_task_is_done  # pyright: ignore
 
     agent_registry[name] = run_agent
     return run_agent
+
+
+def agentic_loop(
+    history: list[Message],
+    *,
+    start_from_agent: Callable[
+        [list[Message], Callable[[str], None]], tuple[Answer, str | None, bool]
+    ],
+    on_token: Callable[[str], None],
+    max_loops: int = 10,
+):
+    answers: list[Answer] = []
+    agent = start_from_agent
+    epoch = 1
+    while True:
+        answer, dispatched_agent, is_task_done = agent(history, on_token)
+        answers.append(answer)
+        ai_messages = [
+            message
+            for message in [
+                answer.agentic_message,
+                answer.non_agentic_message,
+                *[message for message in answer.tool_result_message.values()],
+                answer.interpretation_message,
+                answer.dispatch_message,
+            ]
+            if message is not None
+        ]
+        history.extend(ai_messages)
+
+        if is_task_done:
+            break
+
+        agent = (
+            agent_registry[dispatched_agent]
+            if dispatched_agent is not None
+            else start_from_agent
+        )
+
+        if epoch == max_loops:
+            break
+
+        agent.check_if_task_is_done(history)  # pyright: ignore
+        epoch += 1

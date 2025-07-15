@@ -3,17 +3,17 @@ import ollama
 from src.agent.agent import agent_registry
 
 available_agents = "\n".join(
-    [f"- {agent}" for agent in agent_registry.keys() if agent != "master"]
+    [f"- {agent}" for agent in agent_registry.keys() if agent != "router"]
 )
 
 agent_instructions = "\n".join(
     [
-        f"<{agent}-agent>The master agent should dispatch the {agent} agent when {agent_registry[agent].when_to_dispatch}</{agent}-agent>"  # pyright: ignore
+        f"<{agent}-agent>The router agent should dispatch the {agent} agent when {agent_registry[agent].when_to_dispatch}</{agent}-agent>"  # pyright: ignore
         for agent in agent_registry.keys()
-        if agent != "master"
+        if agent != "router"
     ]
 )
-master_agent_instructions = f"<master-agent>Use this agent to take the user's prompt and delegate a different agent to fulfill the task or respond to the query.</master-agent>"
+router_agent_instructions = f"<router-agent>Use this agent to take the user's prompt and delegate a different agent to fulfill the task or respond to the query.</router-agent>"
 
 
 SYSTEM_PROMPT = (
@@ -23,10 +23,10 @@ as well as perform tasks and provide information from reliable sources.
 
 You have the following agents available:
 
-- master
+- router
 {available_agents}
 
-{master_agent_instructions}
+{router_agent_instructions}
 {agent_instructions}
 """
 )

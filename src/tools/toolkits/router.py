@@ -1,11 +1,9 @@
-import json
-
-from src.agent.agent import agent_registry
+from src.agent.registry import agent_registry
 from src.tools.tools import define_toolkit, description
 
 tool, _, register_toolkit = define_toolkit()
 
-agent_names = list(filter(lambda agent: agent != "master", agent_registry.keys()))
+agent_names = list(filter(lambda agent: agent != "router", agent_registry.keys()))
 dispatching_instructions = {
     "\n".join(
         [
@@ -30,14 +28,31 @@ dispatching_instructions = {
         returns=[
             (
                 "dict[str, str | None]",
-                "The agent to dispatch. If the agent is not found or invalid, returns {agent_to_dispatch: None}.",
+                'The agent to dispatch. If the agent is not found or invalid, returns {"agent_to_dispatch": None}.',
             )
         ],
     )
 )
 def dispatch_agent(agent: str) -> dict[str, str | None]:
-    print(f"Dispatching `{agent}` agent...")
-    if agent not in agent_registry.keys() and agent != "master":
+    if agent not in agent_registry.keys() and agent != "router":
         return {"agent_to_dispatch": None}
 
     return {"agent_to_dispatch": agent}
+
+
+@tool.create(
+    description=description(
+        f"""
+        Should be called if the agent thinks it finished performing the task.
+        """,
+        args=[],
+        returns=[
+            (
+                "dict[str, bool]",
+                'Returns {"is_task_done": True} to signify the task is completed',
+            )
+        ],
+    )
+)
+def mark_task_as_done() -> dict[str, bool]:
+    return {"is_task_done": True}

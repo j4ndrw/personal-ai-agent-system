@@ -27,7 +27,6 @@ def search(query: str, max_results: int) -> list[dict[str, str]] | None:
         headers={"User-Agent": spoofed_user_agent},
     )
     if response.status_code != 200:
-        print("Huh?", response)
         return None
 
     results = response.json().get("results", [])

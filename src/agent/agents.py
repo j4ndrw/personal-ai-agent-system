@@ -14,4 +14,4 @@ web_search_agent = register_agent(
     when_to_dispatch="user asks for information on something",
     toolkits=["web_search"],
 )
-master_agent = register_agent(name="master", toolkits=["dispatch_agent"])
+router_agent = register_agent(name="router", toolkits=["router"])
