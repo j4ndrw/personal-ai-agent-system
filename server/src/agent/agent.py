@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Callable
+from typing import Any, Callable, Generator
 
 from ollama import Message
 
@@ -45,8 +45,7 @@ def register_agent(
         model: str,
         with_tools: bool,
         think: bool,
-        on_token: Callable[[str], None],
-    ) -> Message:
+    ) -> Generator[str, Any, Message]:
         final_message: Message = Message(role="assistant")
         stream = ollama_client.chat(
             model=model,
@@ -57,7 +56,7 @@ def register_agent(
         )
         for chunk in stream:
             if chunk.message.content:
-                on_token(chunk.message.content)
+                yield chunk.message.content
                 final_message.content = (
                     final_message.content + chunk.message.content
                     if final_message.content
@@ -73,17 +72,16 @@ def register_agent(
         return final_message
 
     def run_agent(
-        history: list[Message], on_token: Callable[[str], None]
-    ) -> tuple[Answer, str | None, bool]:
+        history: list[Message],
+    ) -> Generator[str, Any, tuple[Answer, str | None, bool]]:
         answer = Answer()
 
         def maybe_agentic_response():
-            message = chat(
+            message = yield from chat(
                 history=history,
                 model=ROUTER_MODEL,
                 with_tools=True,
                 think=True,
-                on_token=on_token,
             )
 
             tool_calls = [
@@ -100,12 +98,11 @@ def register_agent(
 
         def non_agentic_response():
             is_task_done = True
-            answer.non_agentic_message = chat(
+            answer.non_agentic_message = yield from chat(
                 history=history,
                 model=NON_AGENTIC_MODEL,
                 with_tools=False,
                 think=False,
-                on_token=on_token,
             )
             return is_task_done
 
@@ -139,7 +136,7 @@ def register_agent(
             return success, dispatched_agent, is_task_done
 
         def interpret_tool_call_result():
-            answer.interpretation_message = chat(
+            answer.interpretation_message = yield from chat(
                 history=[
                     *history,
                     *[
@@ -158,7 +155,6 @@ def register_agent(
                 model=INTERPRETATION_MODEL,
                 with_tools=False,
                 think=False,
-                on_token=on_token,
             )
 
         def force_dispatch_to_other_agent(agent: str):
@@ -168,7 +164,7 @@ def register_agent(
             )
 
         def pipeline():
-            tool_calls, is_agentic = maybe_agentic_response()
+            tool_calls, is_agentic = yield from maybe_agentic_response()
 
             if not is_agentic:
                 is_task_done = non_agentic_response()
@@ -217,16 +213,15 @@ def agentic_loop(
     history: list[Message],
     *,
     start_from_agent: Callable[
-        [list[Message], Callable[[str], None]], tuple[Answer, str | None, bool]
+        [list[Message]], Generator[str, Any, tuple[Answer, str | None, bool]]
     ],
-    on_token: Callable[[str], None],
     max_loops: int = 10,
 ):
     answers: list[Answer] = []
     agent = start_from_agent
     epoch = 1
     while True:
-        answer, dispatched_agent, is_task_done = agent(history, on_token)
+        answer, dispatched_agent, is_task_done = yield from agent(history)
         answers.append(answer)
         ai_messages = [
             message
@@ -255,3 +250,4 @@ def agentic_loop(
 
         agent.check_if_task_is_done(history)  # pyright: ignore
         epoch += 1
+    return

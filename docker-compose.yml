@@ -2,11 +2,10 @@ services:
   server:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: ./server/Dockerfile
     container_name: paias-server
-    stdin_open: true
     volumes:
-      - .:/app
+      - ./server:/app
     environment:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
