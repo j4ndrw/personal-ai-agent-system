@@ -1,7 +1,6 @@
 import requests
 from ddgs import DDGS
 from readability.readability import urllib
-
 from src.constants import SEARXNG_HOST
 from src.utils import html_to_text
 
@@ -48,7 +47,13 @@ def search(query: str, max_results: int) -> list[dict[str, str]] | None:
                 continue
 
             html = search_response.text
-            contexts.append({"url": result["url"], "content": html_to_text(html)})
+            contexts.append(
+                {
+                    "url": result["url"],
+                    "title": result["title"],
+                    "content": html_to_text(html),
+                }
+            )
         except Exception:
             continue
 

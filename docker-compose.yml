@@ -4,6 +4,8 @@ services:
       context: .
       dockerfile: ./server/Dockerfile
     container_name: paias-server
+    ports:
+      - "6969:6969"
     volumes:
       - ./server:/app
     environment:

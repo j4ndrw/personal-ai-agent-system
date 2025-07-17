@@ -1,5 +1,4 @@
 import ollama
-
 from src.agent.agent import agent_registry
 
 available_agents = "\n".join(

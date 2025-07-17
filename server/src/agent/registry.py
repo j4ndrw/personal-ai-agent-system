@@ -1,13 +1,3 @@
-from typing import Any, Callable, Generator
+from src.agent.types import AgentRegistry
 
-from ollama import Message
-
-from src.models.agent.answer import Answer
-
-agent_registry: dict[
-    str,
-    Callable[
-        [list[Message]],
-        Generator[str, Any, tuple[Answer, str | None, bool]],
-    ],
-] = {}
+agent_registry: AgentRegistry = {}

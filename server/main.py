@@ -1,8 +1,5 @@
-import json
-from typing import Any
-
 import ollama
-from fastapi import FastAPI, Response
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from src.agent.agent import agentic_loop
@@ -20,7 +17,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.route("/api/chat")
+
+@app.post("/api/chat")
 async def chat(request: Chat):
     if len(history) == 0:
         history.append(system_message())
@@ -33,5 +31,5 @@ async def chat(request: Chat):
             history,
             start_from_agent=router_agent,
         ),
-        media_type="text/plain",
+        media_type="text/event-stream",
     )
