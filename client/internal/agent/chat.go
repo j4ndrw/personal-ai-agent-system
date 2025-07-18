@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 )
 
 type OnChunk func(chunk AgentChunk)
@@ -60,36 +61,41 @@ func ReadChunk(msg ReceiveStreamChunkMsg, onChunk OnChunk) (*ReceiveStreamChunkM
 	return &msg, nil
 }
 
-func MapChunk(mappedChunk *string, thinking *bool) OnChunk {
+func MapChunk(mappedChunk *string, toolCalls *[]string, thinking *bool) OnChunk {
 	return func(chunk AgentChunk) {
 		if chunk.Answer == nil && chunk.ToolCall == nil {
 			return
 		}
+		sb := ""
 
-		if *mappedChunk == "" {
-			*mappedChunk = "# Agent\n"
+		if chunk.Answer != nil {
+			if *thinking != chunk.Answer.Thinking {
+				*thinking = chunk.Answer.Thinking
+				if *thinking {
+					sb += "\n**Thinking**\n\n"
+				} else {
+					sb += "\n**Done thinking**\n\n"
+				}
+			}
+			sb += chunk.Answer.Content
 		}
 
 		if chunk.ToolCall != nil {
-			*mappedChunk = "`tool:`" + chunk.ToolCall.ToolCall + "\n```json\n" + chunk.ToolCall.JSONResult + "```\n\n"
-			return
+			*toolCalls = append(*toolCalls, "`"+chunk.ToolCall.ToolCall+" tool`\n```json\n"+chunk.ToolCall.JSONResult+"\n```\n\n")
 		}
 
-		if *thinking != chunk.Answer.Thinking == true {
-			*thinking = chunk.Answer.Thinking
-			if *thinking {
-				*mappedChunk = "**Thinking**\n\n"
-			} else {
-				*mappedChunk = "**Done thinking**\n\n"
-			}
-		}
-
-		*mappedChunk = chunk.Answer.Content
+		*mappedChunk = sb
 	}
 }
 
-func ProcessChunk(messages *[]string, chunk string, render func() error) error {
-	(*messages)[len(*messages)-1] = (*messages)[len(*messages)-1]+chunk
+func ProcessChunk(messages *[]string, toolCalls *[]string, chunk string, render func() error) error {
+	sb := ""
+	if len(*toolCalls) > 0 {
+		sb = (*messages)[len(*messages)-1] + chunk + "\n" + strings.Join(*toolCalls, "\n")
+	} else {
+		sb = (*messages)[len(*messages)-1] + chunk
+	}
+	(*messages)[len(*messages)-1] = sb
 	err := render()
 	if err != nil {
 		return err
