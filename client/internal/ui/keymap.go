@@ -15,7 +15,7 @@ var Keys = KeyMap{
 	ScrollDown:  key.NewBinding(key.WithKeys("ctrl+d"), key.WithHelp("ctrl+d", "Scroll Down")),
 	Quit:        key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "Quit")),
 	SendMessage: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "Send prompt")),
-	Yank:        key.NewBinding(key.WithKeys("ctrl+y"), key.WithHelp("ctrl+y", "Yank entire conversation")),
+	Yank:        key.NewBinding(key.WithKeys("ctrl+y"), key.WithHelp("ctrl+y", "Yank")),
 }
 
 func (k KeyMap) ShortHelp() []key.Binding {

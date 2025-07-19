@@ -66,29 +66,12 @@ func (m *Model) ChatMessageSendHandler() (tea.Cmd, error) {
 	}, nil
 }
 
-func (m *Model) ProcessAgentChunk(msg *agent.ReceiveStreamChunkMsg) error {
-	if msg == nil {
-		return agent.ProcessToolCalls(
-			&m.state.Messages,
-			&m.state.Agent.ToolCalls,
-			m.RenderMessagesUtil,
-		)
-	}
-	return agent.ProcessAnswerChunk(
-		&m.state.Messages,
-		m.state.Agent.Token,
-		m.RenderMessagesUtil,
-	)
-
-}
-
-func (m *Model) ResetAgentState(msg *agent.ReceiveStreamChunkMsg) {
-	if msg == nil {
-		m.state.Agent.Token = ""
-		m.state.Agent.ToolCalls = []string{}
-		m.state.Waiting = false
-		m.state.Async.ReadChunk = nil
-	}
+func (m *Model) ResetAgentState() {
+	m.state.Async.ReadChunk = nil
+	m.state.Agent.Token = ""
+	m.state.Agent.ToolCalls = []string{}
+	m.state.Waiting = false
+	m.state.Async.ReadChunk = nil
 }
 
 func (m *Model) ReceiveStreamChunkTickHandler(msg agent.ReceiveStreamChunkTickMsg) tea.Cmd {
@@ -122,37 +105,33 @@ func (m *Model) ReceiveStreamChunkHandler(msg agent.ReceiveStreamChunkMsg) (tea.
 	case async.DoneAsyncResultState:
 		err := m.state.Async.ReadChunk.Err
 		if err == io.EOF {
-			m.state.Async.ReadChunk = nil
-			m.state.Waiting = false
+			agent.ProcessToolCalls(
+				&m.state.Messages,
+				&m.state.Agent.ToolCalls,
+				m.RenderMessagesUtil,
+			)
+			m.ResetAgentState()
 			return toCmd(msg), nil
 		}
 		if err != nil {
-			m.state.Async.ReadChunk = nil
-			m.state.Waiting = false
+			m.ResetAgentState()
 			return toCmd(msg), err
 		}
 
 		recvMsg := m.state.Async.ReadChunk.Result.(*agent.ReceiveStreamChunkMsg)
-		if recvMsg != nil {
-			agent.MapChunk(
-				&m.state.Agent.Token,
-				&m.state.Agent.ToolCalls,
-				&m.state.Agent.Thinking,
+		agent.MapChunk(
+			&m.state.Agent.Token,
+			&m.state.Agent.ToolCalls,
+			&m.state.Agent.Thinking,
 			)(recvMsg.AgentChunk)
-		}
-
-		err = m.ProcessAgentChunk(recvMsg)
+		err = agent.ProcessAnswerChunk(
+			&m.state.Messages,
+			m.state.Agent.Token,
+			m.RenderMessagesUtil,
+		)
 		if err != nil {
-			m.state.Waiting = false
-			m.state.Async.ReadChunk = nil
+			m.ResetAgentState()
 			return toCmd(msg), err
-		}
-
-		m.ResetAgentState(recvMsg)
-
-		if recvMsg == nil {
-			m.state.Waiting = false
-			return toCmd(msg), nil
 		}
 
 		m.state.Async.ReadChunk.Phase = async.ReadyAsyncResultState
