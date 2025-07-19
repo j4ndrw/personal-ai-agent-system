@@ -62,3 +62,11 @@ func (m *Model) ScrollDownUpdate() (tea.Model, tea.Cmd) {
 	}
 	return m, cmd
 }
+
+func (m *Model) YankUpdate() (tea.Model, tea.Cmd) {
+	cmd, err := m.YankHandler()
+	if err != nil {
+		return m.ErrorUpdate(err)
+	}
+	return m, cmd
+}

@@ -5,6 +5,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/j4ndrw/personal-ai-agent-system/client/internal/agent"
@@ -122,10 +123,12 @@ func (m *Model) ReceiveStreamChunkHandler(msg agent.ReceiveStreamChunkMsg) (tea.
 		err := m.state.Async.ReadChunk.Err
 		if err == io.EOF {
 			m.state.Async.ReadChunk = nil
+			m.state.Waiting = false
 			return toCmd(msg), nil
 		}
 		if err != nil {
 			m.state.Async.ReadChunk = nil
+			m.state.Waiting = false
 			return toCmd(msg), err
 		}
 
@@ -148,6 +151,7 @@ func (m *Model) ReceiveStreamChunkHandler(msg agent.ReceiveStreamChunkMsg) (tea.
 		m.ResetAgentState(recvMsg)
 
 		if recvMsg == nil {
+			m.state.Waiting = false
 			return toCmd(msg), nil
 		}
 
@@ -165,5 +169,14 @@ func (m *Model) ScrollUpHandler() (tea.Cmd, error) {
 
 func (m *Model) ScrollDownHandler() (tea.Cmd, error) {
 	m.viewport.ScrollDown(ScrollSize)
+	return nil, nil
+}
+
+func (m *Model) YankHandler() (tea.Cmd, error) {
+	messages := m.GetUnstyledMessagesUtil()
+	err := clipboard.WriteAll(messages)
+	if err != nil {
+		return nil, err
+	}
 	return nil, nil
 }

@@ -90,6 +90,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, Keys.ScrollDown):
 			return m.ScrollDownUpdate()
+
+		case key.Matches(msg, Keys.Yank):
+			return m.YankUpdate()
 		}
 
 	case spinner.TickMsg:
