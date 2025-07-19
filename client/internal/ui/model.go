@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
@@ -11,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/j4ndrw/personal-ai-agent-system/client/internal/agent"
 	"github.com/j4ndrw/personal-ai-agent-system/client/internal/state"
@@ -18,11 +20,12 @@ import (
 )
 
 type Model struct {
-	viewport viewport.Model
-	textarea textarea.Model
-	help     help.Model
-	spinner  spinner.Model
-	state    state.State
+	viewport         viewport.Model
+	textarea         textarea.Model
+	help             help.Model
+	spinner          spinner.Model
+	state            state.State
+	markdownRenderer glamour.TermRenderer
 }
 
 func InitialModel() Model {
@@ -33,13 +36,19 @@ func InitialModel() Model {
 
 	ta := TextAreaComponent("Chat with the agent system...", w, TextAreaHeight)
 	sp := SpinnerComponent()
-	vp := viewport.New(w, h-ta.Height()-1-lipgloss.Height(Gap))
+	vp := viewport.New(w, h-ta.Height()-2-lipgloss.Height(Gap))
+
+	markdownRenderer, err := glamour.NewTermRenderer(glamour.WithAutoStyle(), glamour.WithWordWrap(w))
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	return Model{
-		textarea: ta,
-		spinner:  sp,
-		viewport: vp,
-		help:     help.New(),
+		textarea:         ta,
+		spinner:          sp,
+		viewport:         vp,
+		help:             help.New(),
+		markdownRenderer: *markdownRenderer,
 		state: state.State{
 			Messages: []string{},
 			Agent: state.AgentState{
@@ -116,7 +125,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) View() string {
 	return fmt.Sprintf(
-		"%s%s%s\n  %s",
+		"%s%s%s\n  %s\n  %s",
 		m.viewport.View(),
 		Gap,
 		func() string {
@@ -138,6 +147,24 @@ func (m Model) View() string {
 						PromptPrefix,
 						spinnerText[m.state.Agent.Thinking],
 						m.spinner.View(),
+					),
+				)
+		}(),
+		func() string {
+			viewportScrollPercent := fmt.Sprintf("Scroll: %3.f%%", m.viewport.ScrollPercent())
+			return lipgloss.
+				NewStyle().
+				Faint(true).
+				Foreground(lipgloss.Color("#FFFFFF")).
+				Render(
+					fmt.Sprintf(
+						"%s",
+						strings.Join(
+							[]string{
+								viewportScrollPercent,
+							},
+							" | ",
+						),
 					),
 				)
 		}(),
