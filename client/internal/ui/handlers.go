@@ -157,3 +157,13 @@ func (m *Model) ReceiveStreamChunkHandler(msg agent.ReceiveStreamChunkMsg) (tea.
 		return toCmd(msg), nil
 	}
 }
+
+func (m *Model) ScrollUpHandler() (tea.Cmd, error) {
+	m.viewport.ScrollUp(ScrollSize)
+	return nil, nil
+}
+
+func (m *Model) ScrollDownHandler() (tea.Cmd, error) {
+	m.viewport.ScrollDown(ScrollSize)
+	return nil, nil
+}

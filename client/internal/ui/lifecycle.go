@@ -46,3 +46,19 @@ func (m *Model) ChatMessageSendUpdate() (tea.Model, tea.Cmd) {
 	}
 	return m, cmd
 }
+
+func (m *Model) ScrollUpUpdate() (tea.Model, tea.Cmd) {
+	cmd, err := m.ScrollUpHandler()
+	if err != nil {
+		return m.ErrorUpdate(err)
+	}
+	return m, cmd
+}
+
+func (m *Model) ScrollDownUpdate() (tea.Model, tea.Cmd) {
+	cmd, err := m.ScrollDownHandler()
+	if err != nil {
+		return m.ErrorUpdate(err)
+	}
+	return m, cmd
+}

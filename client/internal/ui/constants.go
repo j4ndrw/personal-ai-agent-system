@@ -5,4 +5,5 @@ const (
 	ViewportHeight int = 20
 	TextAreaHeight int = 1
 	PromptPrefix string =  " ┃ "
+	ScrollSize = 5
 )
