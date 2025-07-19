@@ -7,12 +7,12 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-func (m *Model) RenderMessages() error {
+func (m *Model) RenderMessagesUtil() error {
 	renderedMessages, err := glamour.Render(
 		lipgloss.
 			NewStyle().
 			Width(m.viewport.Width).
-			Render(strings.Join(m.messages, "\n")),
+			Render(strings.Join(m.state.messages, "\n")),
 		"dark",
 	)
 	if err != nil {

@@ -1,13 +1,13 @@
 package agent
 
 type Answer struct {
-	Type string `json:"type" validate:"oneof=answer,required"`
-    Thinking bool `json:"thinking" validate:"required"`
-    Content string `json:"content" validate:"required"`
+	Type string `json:"type"`
+    Thinking bool `json:"thinking"`
+    Content string `json:"content"`
 }
 
 type ToolCall struct {
-	Type string `json:"type" validate:"oneof=tool_call,required"`
-    ToolCall string `json:"tool_call" validate:"required"`
-    JSONResult string `json:"result" validate:"required"`
+	Type string `json:"type"`
+    ToolCall string `json:"tool_call"`
+    JSONResult string `json:"result"`
 }

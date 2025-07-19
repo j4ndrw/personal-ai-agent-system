@@ -11,22 +11,18 @@ type AgentChunk struct {
 }
 
 func (ac *AgentChunk) ParseAnswer(body *[]byte) error {
-	var answer Answer
-	err := json.Unmarshal(*body, &answer)
+	err := json.Unmarshal(*body, &ac.Answer)
 	if err != nil {
 		return err
 	}
-	ac.Answer = &answer
 	return nil
 }
 
 func (ac *AgentChunk) ParseToolCall(body *[]byte) error {
-	var toolCall ToolCall
-	err := json.Unmarshal(*body, &toolCall)
+	err := json.Unmarshal(*body, &ac.ToolCall)
 	if err != nil {
 		return err
 	}
-	ac.ToolCall = &toolCall
 	return nil
 }
 

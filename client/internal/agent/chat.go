@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-type OnChunk func(chunk AgentChunk)
+type OnChunk func(chunk *AgentChunk)
 
 type ReceiveStreamChunkMsg struct {
 	AgentChunk *AgentChunk
@@ -26,7 +26,7 @@ func OpenStream(
 	}
 
 	resp, err := http.Post(
-		"http://localhost:6969/api/chat",
+		Endpoint,
 		"application/json",
 		bytes.NewBuffer(bodyData),
 	)
@@ -57,45 +57,58 @@ func ReadChunk(msg ReceiveStreamChunkMsg, onChunk OnChunk) (*ReceiveStreamChunkM
 	if err != nil {
 		return nil, err
 	}
-	onChunk(*msg.AgentChunk)
+	onChunk(msg.AgentChunk)
 	return &msg, nil
 }
 
+func MapAnswer(chunk *AgentChunk, thinking *bool) string {
+	sb := ""
+	if *thinking == chunk.Answer.Thinking {
+		sb += chunk.Answer.Content
+		return sb
+	}
+
+	*thinking = chunk.Answer.Thinking
+	if *thinking {
+		sb += "\n**Thinking**\n\n"
+	} else {
+		sb += "\n**Done thinking**\n\n"
+	}
+	sb += chunk.Answer.Content
+	return sb
+}
+
+func MapToolCall(chunk *AgentChunk) string {
+	return "`" + chunk.ToolCall.ToolCall + " tool`\n```json\n" + chunk.ToolCall.JSONResult + "\n```\n\n"
+}
+
 func MapChunk(mappedChunk *string, toolCalls *[]string, thinking *bool) OnChunk {
-	return func(chunk AgentChunk) {
+	return func(chunk *AgentChunk) {
 		if chunk.Answer == nil && chunk.ToolCall == nil {
 			return
 		}
-		sb := ""
 
 		if chunk.Answer != nil {
-			if *thinking != chunk.Answer.Thinking {
-				*thinking = chunk.Answer.Thinking
-				if *thinking {
-					sb += "\n**Thinking**\n\n"
-				} else {
-					sb += "\n**Done thinking**\n\n"
-				}
-			}
-			sb += chunk.Answer.Content
+			*mappedChunk = MapAnswer(chunk, thinking)
 		}
 
 		if chunk.ToolCall != nil {
-			*toolCalls = append(*toolCalls, "`"+chunk.ToolCall.ToolCall+" tool`\n```json\n"+chunk.ToolCall.JSONResult+"\n```\n\n")
+			*toolCalls = append(*toolCalls, MapToolCall(chunk))
 		}
-
-		*mappedChunk = sb
 	}
 }
 
-func ProcessChunk(messages *[]string, toolCalls *[]string, chunk string, render func() error) error {
-	sb := ""
-	if len(*toolCalls) > 0 {
-		sb = (*messages)[len(*messages)-1] + chunk + "\n" + strings.Join(*toolCalls, "\n")
-	} else {
-		sb = (*messages)[len(*messages)-1] + chunk
+func ProcessAnswerChunk(messages *[]string, chunk string, render func() error) error {
+	(*messages)[len(*messages)-1] = (*messages)[len(*messages)-1] + chunk
+	err := render()
+	if err != nil {
+		return err
 	}
-	(*messages)[len(*messages)-1] = sb
+	return nil
+}
+
+func ProcessToolCalls(messages *[]string, toolCalls *[]string, render func() error) error {
+	(*messages)[len(*messages)-1] = (*messages)[len(*messages)-1] + "\n" + strings.Join(*toolCalls, "\n")
 	err := render()
 	if err != nil {
 		return err

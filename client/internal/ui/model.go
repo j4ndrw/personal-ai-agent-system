@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -14,43 +15,33 @@ import (
 )
 
 type Model struct {
-	viewport          viewport.Model
-	textarea          textarea.Model
-	messages          []string
-	toolCalls         []string
-	agentMessageChunk string
-	agentThinking     bool
-	err               error
+	viewport viewport.Model
+	textarea textarea.Model
+	spinner  spinner.Model
+	state    State
 }
 
 func InitialModel() Model {
-	ta := textarea.New()
-	ta.Placeholder = "Chat with the agent..."
-	ta.Focus()
-
-	ta.Prompt = "┃ "
-
-	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
-
-	ta.ShowLineNumbers = false
-
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
 		log.Fatal(err)
 	}
-	ta.SetWidth(w)
-	ta.SetHeight(TextareaHeight)
+
+	ta := TextAreaComponent("Chat with the agent system...", w, TextAreaHeight)
+	sp := SpinnerComponent()
 	vp := viewport.New(w, h-ta.Height()-lipgloss.Height(Gap))
-	ta.KeyMap.InsertNewline.SetEnabled(false)
 
 	return Model{
-		textarea:          ta,
-		messages:          []string{},
-		toolCalls:         []string{},
-		agentMessageChunk: "",
-		agentThinking:     false,
-		viewport:          vp,
-		err:               nil,
+		textarea: ta,
+		spinner:  sp,
+		viewport: vp,
+		state: State{
+			messages:          []string{},
+			toolCalls:         []string{},
+			agentMessageChunk: "",
+			agentThinking:     false,
+			err:               nil,
+		},
 	}
 }
 
@@ -78,43 +69,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case agent.ReceiveStreamChunkMsg:
-		cmd, err := m.ReceiveStreamChunkHandler(msg)
-		if err != nil {
-			m.err = err
-			return m, nil
-		}
-		if cmd != nil {
-			return m, cmd
-		}
+		return m.ReceiveStreamChunkUpdate(msg)
 
 	case tea.WindowSizeMsg:
-		err := m.WindowSizeHandler(msg)
-		if err != nil {
-			m.err = err
-			return m, nil
-		}
+		return m.WindowSizeUpdate(msg)
 
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyCtrlC, tea.KeyEsc:
-			m.QuitKeyHandler()
-			return m, tea.Quit
+			return m.QuitKeyUpdate()
 
 		case tea.KeyEnter:
-			cmd, err := m.ChatMessageSendHandler()
-			if err != nil {
-				m.err = err
-				return m, nil
-			}
-			return m, cmd
+			return m.ChatMessageSendUpdate()
 		}
 
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+
 	case ErrMsg:
-		m.err = msg
+		m.state.err = msg
 		return m, nil
 	}
 
 	batch := tea.Batch(tiCmd, vpCmd)
-
 	return m, batch
 }
