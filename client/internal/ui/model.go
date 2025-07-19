@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/j4ndrw/personal-ai-agent-system/client/internal/agent"
+	"github.com/j4ndrw/personal-ai-agent-system/client/internal/state"
 	"golang.org/x/term"
 )
 
@@ -18,7 +19,7 @@ type Model struct {
 	viewport viewport.Model
 	textarea textarea.Model
 	spinner  spinner.Model
-	state    State
+	state    state.State
 }
 
 func InitialModel() Model {
@@ -35,12 +36,16 @@ func InitialModel() Model {
 		textarea: ta,
 		spinner:  sp,
 		viewport: vp,
-		state: State{
-			messages:          []string{},
-			toolCalls:         []string{},
-			agentMessageChunk: "",
-			agentThinking:     false,
-			err:               nil,
+		state: state.State{
+			Messages: []string{},
+			Agent: state.AgentState{
+				ToolCalls: []string{},
+				Token:     "",
+				Thinking:  false,
+			},
+			Err: nil,
+			Waiting: false,
+			Async: state.AsyncState{},
 		},
 	}
 }
@@ -54,7 +59,28 @@ func (m Model) View() string {
 		"%s%s%s",
 		m.viewport.View(),
 		Gap,
-		m.textarea.View(),
+		func() string {
+			if !m.state.Waiting {
+				return m.textarea.View()
+			}
+
+			spinnerText := map[bool]string{
+				true:  "Thinking",
+				false: "Generating",
+			}
+			return lipgloss.
+				NewStyle().
+				Faint(true).
+				Foreground(lipgloss.Color("#FFFFFF")).
+				Render(
+					fmt.Sprintf(
+						"%s%s %s",
+						PromptPrefix,
+						spinnerText[m.state.Agent.Thinking],
+						m.spinner.View(),
+					),
+				)
+		}(),
 	)
 }
 
@@ -70,6 +96,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case agent.ReceiveStreamChunkMsg:
 		return m.ReceiveStreamChunkUpdate(msg)
+
+	case agent.ReceiveStreamChunkTickMsg:
+		return m.ReceiveStreamChunkTickUpdate(msg)
 
 	case tea.WindowSizeMsg:
 		return m.WindowSizeUpdate(msg)
@@ -89,10 +118,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case ErrMsg:
-		m.state.err = msg
+		m.state.Err = msg
 		return m, nil
 	}
 
-	batch := tea.Batch(tiCmd, vpCmd)
+	cmds := []tea.Cmd{tiCmd, vpCmd}
+	if m.state.Waiting {
+		cmds = append(cmds, m.spinner.Tick)
+	}
+
+	batch := tea.Batch(cmds...)
 	return m, batch
 }

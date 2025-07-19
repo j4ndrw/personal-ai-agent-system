@@ -11,7 +11,7 @@ func TextAreaComponent(placeholder string, width int, height int) textarea.Model
 	ta.Placeholder = placeholder
 	ta.Focus()
 
-	ta.Prompt = "┃ "
+	ta.Prompt = PromptPrefix
 
 	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
 
@@ -27,7 +27,7 @@ func TextAreaComponent(placeholder string, width int, height int) textarea.Model
 
 func SpinnerComponent() spinner.Model {
 	sp := spinner.New()
-	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("69"))
+	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF"))
 	sp.Spinner = spinner.Points
 	return sp
 }

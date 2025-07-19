@@ -4,8 +4,16 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"time"
+
+	// "log"
+
+	// "io"
 	"net/http"
 	"strings"
+
+	"github.com/j4ndrw/personal-ai-agent-system/client/internal/async"
+	"github.com/j4ndrw/personal-ai-agent-system/client/internal/state"
 )
 
 type OnChunk func(chunk *AgentChunk)
@@ -13,16 +21,18 @@ type OnChunk func(chunk *AgentChunk)
 type ReceiveStreamChunkMsg struct {
 	AgentChunk *AgentChunk
 	Response   *http.Response
+	Time       time.Time
 }
+type ReceiveStreamChunkTickMsg ReceiveStreamChunkMsg
 
 func OpenStream(
 	prompt string,
-) (*ReceiveStreamChunkMsg, error) {
+) (ReceiveStreamChunkMsg, error) {
 	agentChunk := AgentChunk{}
 
 	bodyData, err := json.Marshal(map[string]string{"prompt": prompt})
 	if err != nil {
-		return &ReceiveStreamChunkMsg{}, err
+		return ReceiveStreamChunkMsg{}, err
 	}
 
 	resp, err := http.Post(
@@ -31,34 +41,55 @@ func OpenStream(
 		bytes.NewBuffer(bodyData),
 	)
 	if err != nil {
-		return &ReceiveStreamChunkMsg{}, err
+		return ReceiveStreamChunkMsg{}, err
 	}
 
-	return &ReceiveStreamChunkMsg{
+	return ReceiveStreamChunkMsg{
 		AgentChunk: &agentChunk,
 		Response:   resp,
+		Time:       time.Now(),
 	}, nil
 }
 
-func ReadChunk(msg ReceiveStreamChunkMsg, onChunk OnChunk) (*ReceiveStreamChunkMsg, error) {
+func ReadChunk(msg *ReceiveStreamChunkMsg, rcStateNode *state.ReadChunk) {
 	buf := make([]byte, 1024)
 	_, err := msg.Response.Body.Read(buf)
-	buf = bytes.Trim(buf, "\x00")
 
 	if err == io.EOF {
 		msg.Response.Body.Close()
-		return nil, nil
+
+		rcStateNode.Result = nil
+		rcStateNode.Err = nil
+		rcStateNode.Phase = async.DoneAsyncResultState
+		return
 	}
 	if err != nil {
-		return nil, err
+		rcStateNode.Result = nil
+		rcStateNode.Err = err
+		rcStateNode.Phase = async.DoneAsyncResultState
+		return
+	}
+
+	buf = bytes.Trim(buf, "\x00")
+
+	if len(buf) == 0 {
+		rcStateNode.Result = nil
+		rcStateNode.Err = nil
+		rcStateNode.Phase = async.DoneAsyncResultState
+		return
 	}
 
 	err = msg.AgentChunk.ParseAgentChunk(&buf)
 	if err != nil {
-		return nil, err
+		rcStateNode.Result = nil
+		rcStateNode.Err = err
+		rcStateNode.Phase = async.DoneAsyncResultState
+		return
 	}
-	onChunk(msg.AgentChunk)
-	return &msg, nil
+
+	rcStateNode.Result = msg
+	rcStateNode.Err = nil
+	rcStateNode.Phase = async.DoneAsyncResultState
 }
 
 func MapAnswer(chunk *AgentChunk, thinking *bool) string {

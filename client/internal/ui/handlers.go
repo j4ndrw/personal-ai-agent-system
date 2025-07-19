@@ -2,25 +2,36 @@ package ui
 
 import (
 	"fmt"
+	"io"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/j4ndrw/personal-ai-agent-system/client/internal/agent"
+	"github.com/j4ndrw/personal-ai-agent-system/client/internal/async"
+	"github.com/j4ndrw/personal-ai-agent-system/client/internal/state"
 )
 
 func (m *Model) WindowSizeHandler(msg tea.WindowSizeMsg) error {
 	m.textarea.SetWidth(msg.Width)
 	m.viewport.Width = msg.Width
-	m.viewport.Height = msg.Height - m.textarea.Height() - lipgloss.Height(Gap)
+	m.viewport.Height = func() int {
+		diff := msg.Height - lipgloss.Height(Gap)
+		if m.state.Waiting {
+			return diff - m.spinner.Style.GetHeight()
+		}
+		return diff - m.textarea.Height()
+	}()
 
-	if len(m.state.messages) > 0 {
+	if len(m.state.Messages) > 0 {
 		err := m.RenderMessagesUtil()
 		if err != nil {
 			return err
 		}
-	} else {
-		m.viewport.GotoBottom()
+		return nil
 	}
+
+	m.viewport.GotoBottom()
 	return nil
 }
 
@@ -31,7 +42,7 @@ func (m *Model) QuitKeyHandler() {
 func (m *Model) ChatMessageSendHandler() (tea.Cmd, error) {
 	prompt := m.textarea.Value()
 	message := "> " + prompt + "\n\n"
-	m.state.messages = append(m.state.messages, message)
+	m.state.Messages = append(m.state.Messages, message)
 	err := m.RenderMessagesUtil()
 	if err != nil {
 		return nil, err
@@ -43,45 +54,106 @@ func (m *Model) ChatMessageSendHandler() (tea.Cmd, error) {
 		return nil, err
 	}
 
+	m.state.Waiting = true
+	m.state.Async.ReadChunk = &state.ReadChunk{
+		Result: nil,
+		Err:    nil,
+		Phase:  async.ReadyAsyncResultState,
+	}
 	return func() tea.Msg {
-		return *recvMsg
+		return recvMsg
 	}, nil
 }
 
-func (m *Model) ReceiveStreamChunkHandler(msg agent.ReceiveStreamChunkMsg) (tea.Cmd, error) {
-	recvMsg, err := agent.ReadChunk(
-		msg,
-		agent.MapChunk(&m.state.agentMessageChunk, &m.state.toolCalls, &m.state.agentThinking),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	err = func(m *Model) error {
-		if recvMsg == nil {
-			return agent.ProcessToolCalls(
-				&m.state.messages,
-				&m.state.toolCalls,
-				m.RenderMessagesUtil,
-			)
-		}
-		return agent.ProcessAnswerChunk(
-			&m.state.messages,
-			m.state.agentMessageChunk,
+func (m *Model) ProcessAgentChunk(msg *agent.ReceiveStreamChunkMsg) error {
+	if msg == nil {
+		return agent.ProcessToolCalls(
+			&m.state.Messages,
+			&m.state.Agent.ToolCalls,
 			m.RenderMessagesUtil,
 		)
-	}(m)
-	if err != nil {
-		return nil, err
 	}
+	return agent.ProcessAnswerChunk(
+		&m.state.Messages,
+		m.state.Agent.Token,
+		m.RenderMessagesUtil,
+	)
 
-	if recvMsg == nil {
-		m.state.agentMessageChunk = ""
-		m.state.toolCalls = []string{}
+}
+
+func (m *Model) ResetAgentState(msg *agent.ReceiveStreamChunkMsg) {
+	if msg == nil {
+		m.state.Agent.Token = ""
+		m.state.Agent.ToolCalls = []string{}
+		m.state.Waiting = false
+		m.state.Async.ReadChunk = nil
+	}
+}
+
+func (m *Model) ReceiveStreamChunkTickHandler(msg agent.ReceiveStreamChunkTickMsg) tea.Cmd {
+	return tea.Tick(time.Millisecond, func(t time.Time) tea.Msg {
+		return agent.ReceiveStreamChunkMsg{
+			AgentChunk: msg.AgentChunk,
+			Response:   msg.Response,
+			Time:       t,
+		}
+	})
+}
+
+func (m *Model) ReceiveStreamChunkHandler(msg agent.ReceiveStreamChunkMsg) (tea.Cmd, error) {
+	if m.state.Async.ReadChunk == nil {
 		return nil, nil
 	}
 
-	return func() tea.Msg {
-		return *recvMsg
-	}, nil
+	toCmd := func(msg agent.ReceiveStreamChunkMsg) tea.Cmd {
+		return m.ToCmd(agent.ReceiveStreamChunkTickMsg{
+			AgentChunk: msg.AgentChunk,
+			Response:   msg.Response,
+			Time:       msg.Time,
+		})
+	}
+
+	switch m.state.Async.ReadChunk.Phase {
+	case async.ReadyAsyncResultState:
+		m.state.Async.ReadChunk.Phase = async.PendingAsyncResultState
+		go agent.ReadChunk(&msg, m.state.Async.ReadChunk)
+		return toCmd(msg), nil
+	case async.DoneAsyncResultState:
+		err := m.state.Async.ReadChunk.Err
+		if err == io.EOF {
+			m.state.Async.ReadChunk = nil
+			return toCmd(msg), nil
+		}
+		if err != nil {
+			m.state.Async.ReadChunk = nil
+			return toCmd(msg), err
+		}
+
+		recvMsg := m.state.Async.ReadChunk.Result.(*agent.ReceiveStreamChunkMsg)
+		if recvMsg != nil {
+			agent.MapChunk(
+				&m.state.Agent.Token,
+				&m.state.Agent.ToolCalls,
+				&m.state.Agent.Thinking,
+			)(recvMsg.AgentChunk)
+		}
+
+		err = m.ProcessAgentChunk(recvMsg)
+		if err != nil {
+			m.state.Waiting = false
+			m.state.Async.ReadChunk = nil
+			return toCmd(msg), err
+		}
+
+		m.ResetAgentState(recvMsg)
+
+		if recvMsg == nil {
+			return toCmd(msg), nil
+		}
+
+		m.state.Async.ReadChunk.Phase = async.ReadyAsyncResultState
+		return toCmd(*recvMsg), nil
+	default:
+		return toCmd(msg), nil
+	}
 }

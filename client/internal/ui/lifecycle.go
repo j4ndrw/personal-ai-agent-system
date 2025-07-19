@@ -6,8 +6,13 @@ import (
 )
 
 func (m *Model) ErrorUpdate(msg ErrMsg) (tea.Model, tea.Cmd) {
-	m.state.err = msg
+	m.state.Err = msg
 	return m, nil
+}
+
+func (m *Model) ReceiveStreamChunkTickUpdate(msg agent.ReceiveStreamChunkTickMsg) (tea.Model, tea.Cmd) {
+	cmd := m.ReceiveStreamChunkTickHandler(msg)
+	return m, cmd
 }
 
 func (m *Model) ReceiveStreamChunkUpdate(msg agent.ReceiveStreamChunkMsg) (tea.Model, tea.Cmd) {

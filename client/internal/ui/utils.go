@@ -3,6 +3,7 @@ package ui
 import (
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -12,7 +13,7 @@ func (m *Model) RenderMessagesUtil() error {
 		lipgloss.
 			NewStyle().
 			Width(m.viewport.Width).
-			Render(strings.Join(m.state.messages, "\n")),
+			Render(strings.Join(m.state.Messages, "\n")),
 		"dark",
 	)
 	if err != nil {
@@ -21,4 +22,10 @@ func (m *Model) RenderMessagesUtil() error {
 	m.viewport.SetContent(renderedMessages)
 	m.viewport.GotoBottom()
 	return nil
+}
+
+func (m *Model) ToCmd (msg tea.Msg) tea.Cmd {
+	return func () tea.Msg {
+		return msg
+	}
 }
