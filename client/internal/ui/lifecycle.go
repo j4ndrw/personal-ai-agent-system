@@ -70,3 +70,27 @@ func (m *Model) YankUpdate() (tea.Model, tea.Cmd) {
 	}
 	return m, cmd
 }
+
+func (m *Model) InspectThoughtsUpdate() (tea.Model, tea.Cmd) {
+	cmd, err := m.InspectThoughtsHandler()
+	if err != nil {
+		return m.ErrorUpdate(err)
+	}
+	return m, cmd
+}
+
+func (m *Model) InspectAnswersUpdate() (tea.Model, tea.Cmd) {
+	cmd, err := m.InspectAnswersHandler()
+	if err != nil {
+		return m.ErrorUpdate(err)
+	}
+	return m, cmd
+}
+
+func (m *Model) InspectToolCallsUpdate() (tea.Model, tea.Cmd) {
+	cmd, err := m.InspectToolCallsHandler()
+	if err != nil {
+		return m.ErrorUpdate(err)
+	}
+	return m, cmd
+}

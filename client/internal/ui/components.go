@@ -13,12 +13,12 @@ func TextAreaComponent(placeholder string, width int, height int) textarea.Model
 
 	ta.Prompt = PromptPrefix
 
+	ta.SetWidth(width)
+	ta.SetHeight(height)
+
 	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
 
 	ta.ShowLineNumbers = false
-
-	ta.SetWidth(width)
-	ta.SetHeight(height)
 
 	ta.KeyMap.InsertNewline.SetEnabled(false)
 

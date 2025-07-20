@@ -24,7 +24,7 @@ func (m *Model) WindowSizeHandler(msg tea.WindowSizeMsg) error {
 		return diff - m.textarea.Height()
 	}()
 
-	if len(m.state.Messages) > 0 {
+	if len(m.state.UserMessages) > 0 {
 		err := m.RenderMessagesUtil()
 		if err != nil {
 			return err
@@ -42,8 +42,12 @@ func (m *Model) QuitKeyHandler() {
 
 func (m *Model) ChatMessageSendHandler() (tea.Cmd, error) {
 	prompt := m.textarea.Value()
+	if prompt == "" {
+		return nil, nil
+	}
+
 	message := "> " + prompt + "\n\n"
-	m.state.Messages = append(m.state.Messages, message)
+	m.state.UserMessages = append(m.state.UserMessages, message)
 	err := m.RenderMessagesUtil()
 	if err != nil {
 		return nil, err
@@ -69,7 +73,6 @@ func (m *Model) ChatMessageSendHandler() (tea.Cmd, error) {
 func (m *Model) ResetAgentState() {
 	m.state.Async.ReadChunk = nil
 	m.state.Agent.Token = ""
-	m.state.Agent.ToolCalls = []string{}
 	m.state.Waiting = false
 	m.state.Async.ReadChunk = nil
 }
@@ -105,12 +108,8 @@ func (m *Model) ReceiveStreamChunkHandler(msg agent.ReceiveStreamChunkMsg) (tea.
 	case async.DoneAsyncResultState:
 		err := m.state.Async.ReadChunk.Err
 		if err == io.EOF {
-			agent.ProcessToolCalls(
-				&m.state.Messages,
-				&m.state.Agent.ToolCalls,
-				m.RenderMessagesUtil,
-			)
 			m.ResetAgentState()
+			m.state.Agent.ToolCalls = []string{}
 			return toCmd(msg), nil
 		}
 		if err != nil {
@@ -123,15 +122,33 @@ func (m *Model) ReceiveStreamChunkHandler(msg agent.ReceiveStreamChunkMsg) (tea.
 			&m.state.Agent.Token,
 			&m.state.Agent.ToolCalls,
 			&m.state.Agent.Thinking,
-			)(recvMsg.AgentChunk)
-		err = agent.ProcessAnswerChunk(
-			&m.state.Messages,
+		)(recvMsg.AgentChunk)
+
+		sink := func() *[]string {
+			if m.state.Agent.Thinking {
+				return &m.state.AgentThoughts
+			}
+			return &m.state.AgentAnswers
+		}()
+		err = agent.ProcessChunk(
+			sink,
 			m.state.Agent.Token,
 			m.RenderMessagesUtil,
 		)
 		if err != nil {
 			m.ResetAgentState()
 			return toCmd(msg), err
+		}
+		for _, toolCallChunk := range m.state.Agent.ToolCalls {
+			err = agent.ProcessChunk(
+				&m.state.AgentToolCalls,
+				toolCallChunk,
+				m.RenderMessagesUtil,
+			)
+			if err != nil {
+				m.ResetAgentState()
+				return toCmd(msg), err
+			}
 		}
 
 		m.state.Async.ReadChunk.Phase = async.ReadyAsyncResultState
@@ -152,8 +169,35 @@ func (m *Model) ScrollDownHandler() (tea.Cmd, error) {
 }
 
 func (m *Model) YankHandler() (tea.Cmd, error) {
-	messages := m.GetUnstyledMessagesUtil()
+	messages := m.GetFullUnstyledMessagesUtil()
 	err := clipboard.WriteAll(messages)
+	if err != nil {
+		return nil, err
+	}
+	return nil, nil
+}
+
+func (m *Model) InspectThoughtsHandler() (tea.Cmd, error) {
+	m.state.AgentMessageToShow = state.AgentMessageShowThoughts
+	err := m.RenderMessagesUtil()
+	if err != nil {
+		return nil, err
+	}
+	return nil, nil
+}
+
+func (m *Model) InspectAnswersHandler() (tea.Cmd, error) {
+	m.state.AgentMessageToShow = state.AgentMessageShowAnswers
+	err := m.RenderMessagesUtil()
+	if err != nil {
+		return nil, err
+	}
+	return nil, nil
+}
+
+func (m *Model) InspectToolCallsHandler() (tea.Cmd, error) {
+	m.state.AgentMessageToShow = state.AgentMessageShowToolCalls
+	err := m.RenderMessagesUtil()
 	if err != nil {
 		return nil, err
 	}

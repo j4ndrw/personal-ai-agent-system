@@ -36,7 +36,10 @@ func InitialModel() Model {
 
 	ta := TextAreaComponent("Chat with the agent system...", w, TextAreaHeight)
 	sp := SpinnerComponent()
-	vp := viewport.New(w, h-ta.Height()-2-lipgloss.Height(Gap))
+	vp := viewport.New(w, h-ta.Height()-3-lipgloss.Height(Gap))
+	vp.Style = lipgloss.NewStyle().PaddingTop(2).PaddingLeft(1).PaddingRight(1).Width(w).Align(lipgloss.Center)
+	hlp := help.New()
+	hlp.ShowAll = true
 
 	markdownRenderer, err := glamour.NewTermRenderer(glamour.WithAutoStyle(), glamour.WithWordWrap(w))
 	if err != nil {
@@ -47,10 +50,14 @@ func InitialModel() Model {
 		textarea:         ta,
 		spinner:          sp,
 		viewport:         vp,
-		help:             help.New(),
+		help:             hlp,
 		markdownRenderer: *markdownRenderer,
 		state: state.State{
-			Messages: []string{},
+			UserMessages:       []string{},
+			AgentThoughts:      []string{},
+			AgentAnswers:       []string{},
+			AgentToolCalls:     []string{},
+			AgentMessageToShow: state.AgentMessageShowAnswers,
 			Agent: state.AgentState{
 				ToolCalls: []string{},
 				Token:     "",
@@ -102,6 +109,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, Keys.Yank):
 			return m.YankUpdate()
+
+		case key.Matches(msg, Keys.InspectThoughts):
+			return m.InspectThoughtsUpdate()
+
+		case key.Matches(msg, Keys.InspectAnswers):
+			return m.InspectAnswersUpdate()
+
+		case key.Matches(msg, Keys.InspectToolCalls):
+			return m.InspectToolCallsUpdate()
 		}
 
 	case spinner.TickMsg:
@@ -125,12 +141,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) View() string {
 	return fmt.Sprintf(
-		"%s%s%s\n   %s\n   %s",
+		"%s%s%s\n%s\n%s",
 		m.viewport.View(),
 		Gap,
 		func() string {
 			if !m.state.Waiting {
-				return m.textarea.View()
+				return lipgloss.
+					NewStyle().
+					Render(m.textarea.View())
 			}
 
 			spinnerText := map[bool]string{
@@ -150,24 +168,46 @@ func (m Model) View() string {
 					),
 				)
 		}(),
-		func() string {
-			viewportScrollPercent := fmt.Sprintf("Scroll: %3.f%%", m.viewport.ScrollPercent())
-			return lipgloss.
-				NewStyle().
-				Faint(true).
-				Foreground(lipgloss.Color("#FFFFFF")).
-				Render(
-					fmt.Sprintf(
-						"%s",
-						strings.Join(
-							[]string{
-								viewportScrollPercent,
-							},
-							" | ",
-						),
-					),
-				)
-		}(),
-		m.help.View(Keys),
+		lipgloss.
+			NewStyle().
+			PaddingLeft(3).
+			Render(
+				func() string {
+					inspecting := fmt.Sprintf(
+						"Currently inspecting: Agent %s",
+						func() string {
+							switch m.state.AgentMessageToShow {
+							case state.AgentMessageShowAnswers:
+								return "answers"
+							case state.AgentMessageShowThoughts:
+								return "thoughts"
+							default:
+								return "tool calls"
+							}
+						}(),
+					)
+					return lipgloss.
+						NewStyle().
+						Faint(true).
+						Foreground(lipgloss.Color("#FFFFFF")).
+						Render(
+							fmt.Sprintf(
+								"%s",
+								strings.Join(
+									[]string{
+										inspecting,
+									},
+									" | ",
+								),
+							),
+						)
+				}(),
+			),
+		lipgloss.
+			NewStyle().
+			PaddingLeft(3).
+			Render(
+				strings.Join(strings.Split(m.help.View(Keys), "\r\n"), "   \n"),
+			),
 	)
 }

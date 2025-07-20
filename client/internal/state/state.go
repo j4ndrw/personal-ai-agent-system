@@ -1,6 +1,8 @@
 package state
 
-import "github.com/j4ndrw/personal-ai-agent-system/client/internal/async"
+import (
+	"github.com/j4ndrw/personal-ai-agent-system/client/internal/async"
+)
 
 type AgentState struct {
 	Token     string
@@ -19,9 +21,13 @@ type AsyncState struct {
 }
 
 type State struct {
-	Messages []string
-	Err      error
-	Waiting  bool
-	Agent    AgentState
-	Async    AsyncState
+	UserMessages       []string
+	AgentThoughts      []string
+	AgentAnswers       []string
+	AgentToolCalls     []string
+	AgentMessageToShow AgentMessageToShow
+	Err                error
+	Waiting            bool
+	Agent              AgentState
+	Async              AsyncState
 }

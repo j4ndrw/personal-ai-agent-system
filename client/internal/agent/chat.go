@@ -6,11 +6,7 @@ import (
 	"io"
 	"time"
 
-	// "log"
-
-	// "io"
 	"net/http"
-	"strings"
 
 	"github.com/j4ndrw/personal-ai-agent-system/client/internal/async"
 	"github.com/j4ndrw/personal-ai-agent-system/client/internal/state"
@@ -93,53 +89,43 @@ func ReadChunk(msg *ReceiveStreamChunkMsg, rcStateNode *state.ReadChunk) {
 }
 
 func MapAnswer(chunk *AgentChunk, thinking *bool) string {
-	sb := ""
-	if *thinking == chunk.Answer.Thinking {
-		sb += chunk.Answer.Content
-		return sb
+	if *thinking != chunk.Answer.Thinking {
+		*thinking = chunk.Answer.Thinking
 	}
-
-	*thinking = chunk.Answer.Thinking
-	if *thinking {
-		sb += "\n**Thinking**\n\n"
-	} else {
-		sb += "\n**Done thinking**\n\n"
-	}
-	sb += chunk.Answer.Content
-	return sb
+	return chunk.Answer.Content
 }
 
 func MapToolCall(chunk *AgentChunk) string {
 	return "`" + chunk.ToolCall.ToolCall + " tool`\n```json\n" + chunk.ToolCall.JSONResult + "\n```\n\n"
 }
 
-func MapChunk(mappedChunk *string, toolCalls *[]string, thinking *bool) OnChunk {
+func MapChunk(
+	mappedChunk *string,
+	toolCalls *[]string,
+	thinking *bool,
+) OnChunk {
 	return func(chunk *AgentChunk) {
 		if chunk.Answer == nil && chunk.ToolCall == nil {
 			return
 		}
 
-		if chunk.Answer != nil {
+		if chunk.Answer != nil && chunk.Answer.Content != "" {
 			*mappedChunk = MapAnswer(chunk, thinking)
-		}
-
-		if chunk.ToolCall != nil {
-			*toolCalls = append(*toolCalls, MapToolCall(chunk))
+		} else if chunk.ToolCall != nil && chunk.ToolCall.ToolCall != "" {
+			toolCall := MapToolCall(chunk)
+			if len(*toolCalls) == 0 || (*toolCalls)[len(*toolCalls)-1] != toolCall {
+				*toolCalls = append(*toolCalls, MapToolCall(chunk))
+			}
 		}
 	}
 }
 
-func ProcessAnswerChunk(messages *[]string, chunk string, render func() error) error {
-	(*messages)[len(*messages)-1] = (*messages)[len(*messages)-1] + chunk
-	err := render()
-	if err != nil {
-		return err
+func ProcessChunk(sink *[]string, chunk string, render func() error) error {
+	if len(*sink) == 0 {
+		*sink = append(*sink, chunk)
+	} else {
+		(*sink)[len(*sink)-1] = (*sink)[len(*sink)-1] + chunk
 	}
-	return nil
-}
-
-func ProcessToolCalls(messages *[]string, toolCalls *[]string, render func() error) error {
-	(*messages)[len(*messages)-1] = (*messages)[len(*messages)-1] + "\n" + strings.Join(*toolCalls, "\n")
 	err := render()
 	if err != nil {
 		return err
