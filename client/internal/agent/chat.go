@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"slices"
 	"strings"
 	"time"
 
@@ -106,22 +107,31 @@ func MapChunk(
 ) OnChunk {
 	return func(chunk AgentChunk) {
 		*chunkId = chunk.Id
+		*mappedChunk = ""
+		*toolCall = ""
 
 		if chunk.Type == "answer" && chunk.Answer.Content != "" {
 			*mappedChunk = MapAnswer(chunk, thinking)
-			return
 		}
-
 		if chunk.Type == "tool_call" && chunk.ToolCall.ToolCall != "" {
 			*toolCall = MapToolCall(chunk)
-		} else {
-			toolCall = nil
 		}
 	}
 }
 
-func ProcessChunk(sink *[]string, chunk string, id string, render func() error) error {
+func ProcessChunk(
+	sink *[]string,
+	chunk string,
+	id string,
+	processedChunkIds *[]string,
+	render func() error,
+) error {
+	if slices.Contains(*processedChunkIds, id) {
+		return nil
+	}
+
 	(*sink)[len(*sink)-1] = (*sink)[len(*sink)-1] + chunk
+	(*processedChunkIds) = append(*processedChunkIds, id)
 	err := render()
 	if err != nil {
 		return err
