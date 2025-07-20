@@ -16,11 +16,13 @@ func TextAreaComponent(placeholder string, width int, height int) textarea.Model
 	ta.SetWidth(width)
 	ta.SetHeight(height)
 
-	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
+	baseStyle := lipgloss.NewStyle()
+	ta.FocusedStyle.CursorLine = baseStyle
+	ta.BlurredStyle.Base = baseStyle.Faint(true)
 
-	ta.ShowLineNumbers = false
+	ta.ShowLineNumbers = true
 
-	ta.KeyMap.InsertNewline.SetEnabled(false)
+	ta.KeyMap.InsertNewline.SetEnabled(true)
 
 	return ta
 }

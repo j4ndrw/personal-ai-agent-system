@@ -5,9 +5,9 @@ import (
 )
 
 type AgentState struct {
-	Token     string
-	Thinking  bool
-	ToolCalls []string
+	Token    string
+	Thinking bool
+	ToolCall string
 }
 
 type ReadChunk struct {
@@ -30,4 +30,5 @@ type State struct {
 	Waiting            bool
 	Agent              AgentState
 	Async              AsyncState
+	Mode               Mode
 }

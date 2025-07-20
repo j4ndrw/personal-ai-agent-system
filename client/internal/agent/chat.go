@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"io"
+	"strings"
 	"time"
 
 	"net/http"
@@ -24,13 +26,12 @@ type ReceiveStreamChunkTickMsg ReceiveStreamChunkMsg
 func OpenStream(
 	prompt string,
 ) (ReceiveStreamChunkMsg, error) {
-	agentChunk := AgentChunk{}
-
 	bodyData, err := json.Marshal(map[string]string{"prompt": prompt})
 	if err != nil {
 		return ReceiveStreamChunkMsg{}, err
 	}
 
+	http.DefaultClient.Timeout = 0
 	resp, err := http.Post(
 		Endpoint,
 		"application/json",
@@ -41,16 +42,16 @@ func OpenStream(
 	}
 
 	return ReceiveStreamChunkMsg{
-		AgentChunk: &agentChunk,
+		AgentChunk: nil,
 		Response:   resp,
 		Time:       time.Now(),
 	}, nil
 }
 
 func ReadChunk(msg *ReceiveStreamChunkMsg, rcStateNode *state.ReadChunk) {
-	buf := make([]byte, 1024)
-	_, err := msg.Response.Body.Read(buf)
+	reader := bufio.NewReader(msg.Response.Body)
 
+	body, err := reader.ReadString('\n')
 	if err == io.EOF {
 		msg.Response.Body.Close()
 
@@ -66,16 +67,15 @@ func ReadChunk(msg *ReceiveStreamChunkMsg, rcStateNode *state.ReadChunk) {
 		return
 	}
 
-	buf = bytes.Trim(buf, "\x00")
+	body = strings.Trim(body, "\n")
+	buf := []byte(body)
 
-	if len(buf) == 0 {
-		rcStateNode.Result = nil
-		rcStateNode.Err = nil
-		rcStateNode.Phase = async.DoneAsyncResultState
+	if len(body) == 0 {
 		return
 	}
 
-	err = msg.AgentChunk.ParseAgentChunk(&buf)
+	ac := AgentChunk{}
+	err = ac.ParseAgentChunk(&buf)
 	if err != nil {
 		rcStateNode.Result = nil
 		rcStateNode.Err = err
@@ -83,6 +83,7 @@ func ReadChunk(msg *ReceiveStreamChunkMsg, rcStateNode *state.ReadChunk) {
 		return
 	}
 
+	msg.AgentChunk = &ac
 	rcStateNode.Result = msg
 	rcStateNode.Err = nil
 	rcStateNode.Phase = async.DoneAsyncResultState
@@ -101,31 +102,30 @@ func MapToolCall(chunk *AgentChunk) string {
 
 func MapChunk(
 	mappedChunk *string,
-	toolCalls *[]string,
+	toolCall *string,
 	thinking *bool,
 ) OnChunk {
 	return func(chunk *AgentChunk) {
-		if chunk.Answer == nil && chunk.ToolCall == nil {
+		if chunk.Type == "answer" && chunk.Answer.Content != "" {
+			*mappedChunk = MapAnswer(chunk, thinking)
 			return
 		}
 
-		if chunk.Answer != nil && chunk.Answer.Content != "" {
-			*mappedChunk = MapAnswer(chunk, thinking)
-		} else if chunk.ToolCall != nil && chunk.ToolCall.ToolCall != "" {
-			toolCall := MapToolCall(chunk)
-			if len(*toolCalls) == 0 || (*toolCalls)[len(*toolCalls)-1] != toolCall {
-				*toolCalls = append(*toolCalls, MapToolCall(chunk))
-			}
+		if chunk.Type == "tool_call" && chunk.ToolCall.ToolCall != "" {
+			*toolCall = MapToolCall(chunk)
+		} else {
+			toolCall = nil
 		}
 	}
 }
 
-func ProcessChunk(sink *[]string, chunk string, render func() error) error {
+func ProcessChunk(sink *[]string, chunk string, render func() error, idempotent bool) error {
 	if len(*sink) == 0 {
 		*sink = append(*sink, chunk)
-	} else {
+	} else if !idempotent || (*sink)[len(*sink)-1] != chunk {
 		(*sink)[len(*sink)-1] = (*sink)[len(*sink)-1] + chunk
 	}
+
 	err := render()
 	if err != nil {
 		return err

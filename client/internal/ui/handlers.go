@@ -46,7 +46,7 @@ func (m *Model) ChatMessageSendHandler() (tea.Cmd, error) {
 		return nil, nil
 	}
 
-	message := "> " + prompt + "\n\n"
+	message := "> " + prompt + "\n"
 	m.state.UserMessages = append(m.state.UserMessages, message)
 	err := m.RenderMessagesUtil()
 	if err != nil {
@@ -109,10 +109,13 @@ func (m *Model) ReceiveStreamChunkHandler(msg agent.ReceiveStreamChunkMsg) (tea.
 		err := m.state.Async.ReadChunk.Err
 		if err == io.EOF {
 			m.ResetAgentState()
-			m.state.Agent.ToolCalls = []string{}
 			return toCmd(msg), nil
 		}
 		if err != nil {
+			m.ResetAgentState()
+			return toCmd(msg), err
+		}
+		if m.state.Async.ReadChunk.Result == nil {
 			m.ResetAgentState()
 			return toCmd(msg), err
 		}
@@ -120,34 +123,36 @@ func (m *Model) ReceiveStreamChunkHandler(msg agent.ReceiveStreamChunkMsg) (tea.
 		recvMsg := m.state.Async.ReadChunk.Result.(*agent.ReceiveStreamChunkMsg)
 		agent.MapChunk(
 			&m.state.Agent.Token,
-			&m.state.Agent.ToolCalls,
+			&m.state.Agent.ToolCall,
 			&m.state.Agent.Thinking,
 		)(recvMsg.AgentChunk)
 
-		sink := func() *[]string {
-			if m.state.Agent.Thinking {
-				return &m.state.AgentThoughts
-			}
-			return &m.state.AgentAnswers
-		}()
-		err = agent.ProcessChunk(
-			sink,
-			m.state.Agent.Token,
-			m.RenderMessagesUtil,
-		)
-		if err != nil {
-			m.ResetAgentState()
-			return toCmd(msg), err
+		sinkMap := map[string]func() (*[]string, string, bool){
+			"thoughts": func() (*[]string, string, bool) {
+				return &m.state.AgentThoughts, m.state.Agent.Token, false
+			},
+			"answers": func() (*[]string, string, bool) {
+				return &m.state.AgentAnswers, m.state.Agent.Token, false
+			},
+			"toolcalls": func() (*[]string, string, bool) {
+				return &m.state.AgentToolCalls, m.state.Agent.ToolCall, true
+			},
 		}
-		for _, toolCallChunk := range m.state.Agent.ToolCalls {
-			err = agent.ProcessChunk(
-				&m.state.AgentToolCalls,
-				toolCallChunk,
-				m.RenderMessagesUtil,
-			)
-			if err != nil {
-				m.ResetAgentState()
-				return toCmd(msg), err
+		for k, _ := range sinkMap {
+			if (k == "thoughts" && m.state.Agent.Thinking) ||
+				(k == "answers" && !m.state.Agent.Thinking) ||
+				(k == "toolcalls" && m.state.Agent.ToolCall != "") {
+				sink, chunk, idempotent := sinkMap[k]()
+				err = agent.ProcessChunk(
+					sink,
+					chunk,
+					m.RenderMessagesUtil,
+					idempotent,
+				)
+				if err != nil {
+					m.ResetAgentState()
+					return toCmd(msg), err
+				}
 			}
 		}
 
@@ -201,5 +206,34 @@ func (m *Model) InspectToolCallsHandler() (tea.Cmd, error) {
 	if err != nil {
 		return nil, err
 	}
+	return nil, nil
+}
+
+func (m *Model) ToNormalModeHandler() (tea.Cmd, error) {
+	m.state.Mode = state.NormalMode
+	m.textarea.Blur()
+	return nil, nil
+}
+
+func (m *Model) ToInsertModeHandler() (tea.Cmd, error) {
+	if m.state.Waiting {
+		return nil, nil
+	}
+	m.state.Mode = state.InsertMode
+	return m.textarea.Focus(), nil
+}
+
+func (m *Model) NewLineHandler() (tea.Cmd, error) {
+	m.textarea.KeyMap.InsertNewline.SetEnabled(true)
+	return nil, nil
+}
+
+func (m *Model) ScrollToTopHandler() (tea.Cmd, error) {
+	m.viewport.GotoTop()
+	return nil, nil
+}
+
+func (m *Model) ScrollToBottomHandler() (tea.Cmd, error) {
+	m.viewport.GotoBottom()
 	return nil, nil
 }

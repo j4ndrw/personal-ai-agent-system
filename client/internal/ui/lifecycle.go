@@ -94,3 +94,43 @@ func (m *Model) InspectToolCallsUpdate() (tea.Model, tea.Cmd) {
 	}
 	return m, cmd
 }
+
+func (m *Model) ToNormalModeUpdate() (tea.Model, tea.Cmd) {
+	cmd, err := m.ToNormalModeHandler()
+	if err != nil {
+		return m.ErrorUpdate(err)
+	}
+	return m, cmd
+}
+
+func (m *Model) ToInsertModeUpdate() (tea.Model, tea.Cmd) {
+	cmd, err := m.ToInsertModeHandler()
+	if err != nil {
+		return m.ErrorUpdate(err)
+	}
+	return m, cmd
+}
+
+func (m *Model) NewLineUpdate() (tea.Model, tea.Cmd) {
+	cmd, err := m.NewLineHandler()
+	if err != nil {
+		return m.ErrorUpdate(err)
+	}
+	return m, cmd
+}
+
+func (m *Model) ScrollToTopUpdate() (tea.Model, tea.Cmd) {
+	cmd, err := m.ScrollToTopHandler()
+	if err != nil {
+		return m.ErrorUpdate(err)
+	}
+	return m, cmd
+}
+
+func (m *Model) ScrollToBottomUpdate() (tea.Model, tea.Cmd) {
+	cmd, err := m.ScrollToBottomHandler()
+	if err != nil {
+		return m.ErrorUpdate(err)
+	}
+	return m, cmd
+}

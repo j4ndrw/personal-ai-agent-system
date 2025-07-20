@@ -23,6 +23,7 @@ type Model struct {
 	viewport         viewport.Model
 	textarea         textarea.Model
 	help             help.Model
+	keys             help.KeyMap
 	spinner          spinner.Model
 	state            state.State
 	markdownRenderer glamour.TermRenderer
@@ -34,10 +35,15 @@ func InitialModel() Model {
 		log.Fatal(err)
 	}
 
-	ta := TextAreaComponent("Chat with the agent system...", w, TextAreaHeight)
+	ta := TextAreaComponent("Chat with the agent system...", w, 1)
 	sp := SpinnerComponent()
-	vp := viewport.New(w, h-ta.Height()-3-lipgloss.Height(Gap))
-	vp.Style = lipgloss.NewStyle().PaddingTop(2).PaddingLeft(1).PaddingRight(1).Width(w).Align(lipgloss.Center)
+	vph := h - ta.Height() - 5 - lipgloss.Height(Gap)
+	vp := viewport.New(w, vph)
+	vp.Style = lipgloss.
+		NewStyle().
+		PaddingTop(2).
+		PaddingLeft(1).
+		PaddingRight(1)
 	hlp := help.New()
 	hlp.ShowAll = true
 
@@ -51,17 +57,19 @@ func InitialModel() Model {
 		spinner:          sp,
 		viewport:         vp,
 		help:             hlp,
+		keys:             InsertModeKeys,
 		markdownRenderer: *markdownRenderer,
 		state: state.State{
+			Mode:               state.InsertMode,
 			UserMessages:       []string{},
 			AgentThoughts:      []string{},
 			AgentAnswers:       []string{},
 			AgentToolCalls:     []string{},
 			AgentMessageToShow: state.AgentMessageShowAnswers,
 			Agent: state.AgentState{
-				ToolCalls: []string{},
-				Token:     "",
-				Thinking:  false,
+				ToolCall: "",
+				Token:    "",
+				Thinking: false,
 			},
 			Err:     nil,
 			Waiting: false,
@@ -83,6 +91,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.textarea, tiCmd = m.textarea.Update(msg)
 	m.viewport, vpCmd = m.viewport.Update(msg)
 
+	switch m.state.Mode {
+	case state.NormalMode:
+		m.keys = NormalModeKeys
+		break
+	case state.InsertMode:
+		m.keys = InsertModeKeys
+		break
+	}
+
 	switch msg := msg.(type) {
 	case agent.ReceiveStreamChunkMsg:
 		return m.ReceiveStreamChunkUpdate(msg)
@@ -94,30 +111,59 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.WindowSizeUpdate(msg)
 
 	case tea.KeyMsg:
-		switch {
-		case key.Matches(msg, Keys.Quit):
-			return m.QuitKeyUpdate()
+		switch keys := m.keys.(type) {
+		case InsertModeKeyMap:
+			switch {
+			case key.Matches(msg, keys.Quit):
+				return m.QuitKeyUpdate()
 
-		case key.Matches(msg, Keys.SendMessage):
-			return m.ChatMessageSendUpdate()
+			case key.Matches(msg, keys.ScrollUp):
+				return m.ScrollUpUpdate()
 
-		case key.Matches(msg, Keys.ScrollUp):
-			return m.ScrollUpUpdate()
+			case key.Matches(msg, keys.ScrollDown):
+				return m.ScrollDownUpdate()
 
-		case key.Matches(msg, Keys.ScrollDown):
-			return m.ScrollDownUpdate()
+			case key.Matches(msg, keys.ToNormalMode):
+				return m.ToNormalModeUpdate()
 
-		case key.Matches(msg, Keys.Yank):
-			return m.YankUpdate()
+			case key.Matches(msg, keys.NewLine):
+				return m.NewLineUpdate()
+			}
+		case NormalModeKeyMap:
+			switch {
+			case key.Matches(msg, keys.Quit):
+				return m.QuitKeyUpdate()
 
-		case key.Matches(msg, Keys.InspectThoughts):
-			return m.InspectThoughtsUpdate()
+			case key.Matches(msg, keys.ScrollUp):
+				return m.ScrollUpUpdate()
 
-		case key.Matches(msg, Keys.InspectAnswers):
-			return m.InspectAnswersUpdate()
+			case key.Matches(msg, keys.ScrollDown):
+				return m.ScrollDownUpdate()
 
-		case key.Matches(msg, Keys.InspectToolCalls):
-			return m.InspectToolCallsUpdate()
+			case key.Matches(msg, keys.SendMessage):
+				return m.ChatMessageSendUpdate()
+
+			case key.Matches(msg, keys.Yank):
+				return m.YankUpdate()
+
+			case key.Matches(msg, keys.InspectThoughts):
+				return m.InspectThoughtsUpdate()
+
+			case key.Matches(msg, keys.InspectAnswers):
+				return m.InspectAnswersUpdate()
+
+			case key.Matches(msg, keys.InspectToolCalls):
+				return m.InspectToolCallsUpdate()
+
+			case key.Matches(msg, keys.ToInsertMode):
+				return m.ToInsertModeUpdate()
+
+			case key.Matches(msg, keys.ScrollToTop):
+				return m.ScrollToTopUpdate()
+
+			case key.Matches(msg, keys.ScrollToBottom):
+				return m.ScrollToBottomUpdate()
+			}
 		}
 
 	case spinner.TickMsg:
@@ -130,11 +176,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	cmds := []tea.Cmd{tiCmd, vpCmd}
-	if m.state.Waiting {
-		cmds = append(cmds, m.spinner.Tick)
-	}
-
+	cmds := []tea.Cmd{tiCmd, vpCmd, m.spinner.Tick}
 	batch := tea.Batch(cmds...)
 	return m, batch
 }
@@ -161,7 +203,7 @@ func (m Model) View() string {
 				Foreground(lipgloss.Color("#FFFFFF")).
 				Render(
 					fmt.Sprintf(
-						"%s%s %s",
+						"%s  %s %s",
 						PromptPrefix,
 						spinnerText[m.state.Agent.Thinking],
 						m.spinner.View(),
@@ -170,7 +212,7 @@ func (m Model) View() string {
 		}(),
 		lipgloss.
 			NewStyle().
-			PaddingLeft(3).
+			PaddingLeft(4).
 			Render(
 				func() string {
 					inspecting := fmt.Sprintf(
@@ -205,9 +247,9 @@ func (m Model) View() string {
 			),
 		lipgloss.
 			NewStyle().
-			PaddingLeft(3).
+			PaddingLeft(4).
 			Render(
-				strings.Join(strings.Split(m.help.View(Keys), "\r\n"), "   \n"),
+				strings.Join(strings.Split(m.help.View(m.keys), "\r\n"), "   \n"),
 			),
 	)
 }
