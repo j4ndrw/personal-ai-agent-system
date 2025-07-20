@@ -5,19 +5,25 @@ import (
 )
 
 type AgentState struct {
-	Token    string
-	Thinking bool
-	ToolCall string
+	ProcessedChunkIds []string
+	ChunkId           string
+	Token             string
+	Thinking          bool
+	ToolCall          string
 }
 
-type ReadChunk struct {
+type ReadChunkData struct {
 	Result any
 	Err    error
 	Phase  async.AsyncResultState
 }
 
+type ReadChunk struct {
+	Data *ReadChunkData
+}
+
 type AsyncState struct {
-	ReadChunk *ReadChunk
+	ReadChunk ReadChunk
 }
 
 type State struct {

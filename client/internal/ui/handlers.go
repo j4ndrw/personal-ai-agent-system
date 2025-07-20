@@ -3,6 +3,8 @@ package ui
 import (
 	"fmt"
 	"io"
+
+	"slices"
 	"time"
 
 	"github.com/atotto/clipboard"
@@ -48,36 +50,45 @@ func (m *Model) ChatMessageSendHandler() (tea.Cmd, error) {
 
 	message := "> " + prompt + "\n"
 	m.state.UserMessages = append(m.state.UserMessages, message)
+	m.state.AgentAnswers = append(m.state.AgentAnswers, "")
+	m.state.AgentThoughts = append(m.state.AgentThoughts, "")
+	m.state.AgentToolCalls = append(m.state.AgentToolCalls, "")
+
 	err := m.RenderMessagesUtil()
 	if err != nil {
 		return nil, err
 	}
 	m.textarea.Reset()
 
-	recvMsg, err := agent.OpenStream(prompt)
+	msg, err := agent.OpenStream(prompt)
 	if err != nil {
 		return nil, err
 	}
 
+	m.ResetAgentState()
 	m.state.Waiting = true
-	m.state.Async.ReadChunk = &state.ReadChunk{
-		Result: nil,
+	m.state.Async.ReadChunk.Data = &state.ReadChunkData{
+		Result: agent.ReceiveStreamChunkMsg{},
 		Err:    nil,
 		Phase:  async.ReadyAsyncResultState,
 	}
-	return func() tea.Msg {
-		return recvMsg
-	}, nil
+	return m.ToCmd(msg), nil
 }
 
 func (m *Model) ResetAgentState() {
-	m.state.Async.ReadChunk = nil
+	m.state.Async.ReadChunk.Data = nil
 	m.state.Agent.Token = ""
+	m.state.Agent.ToolCall = ""
 	m.state.Waiting = false
-	m.state.Async.ReadChunk = nil
+	m.state.Agent.ProcessedChunkIds = []string{}
+	m.state.Agent.ChunkId = ""
 }
 
 func (m *Model) ReceiveStreamChunkTickHandler(msg agent.ReceiveStreamChunkTickMsg) tea.Cmd {
+	if m.state.Async.ReadChunk.Data == nil {
+		return nil
+	}
+
 	return tea.Tick(time.Millisecond, func(t time.Time) tea.Msg {
 		return agent.ReceiveStreamChunkMsg{
 			AgentChunk: msg.AgentChunk,
@@ -88,7 +99,7 @@ func (m *Model) ReceiveStreamChunkTickHandler(msg agent.ReceiveStreamChunkTickMs
 }
 
 func (m *Model) ReceiveStreamChunkHandler(msg agent.ReceiveStreamChunkMsg) (tea.Cmd, error) {
-	if m.state.Async.ReadChunk == nil {
+	if m.state.Async.ReadChunk.Data == nil {
 		return nil, nil
 	}
 
@@ -100,13 +111,13 @@ func (m *Model) ReceiveStreamChunkHandler(msg agent.ReceiveStreamChunkMsg) (tea.
 		})
 	}
 
-	switch m.state.Async.ReadChunk.Phase {
+	switch m.state.Async.ReadChunk.Data.Phase {
 	case async.ReadyAsyncResultState:
-		m.state.Async.ReadChunk.Phase = async.PendingAsyncResultState
-		go agent.ReadChunk(&msg, m.state.Async.ReadChunk)
+		m.state.Async.ReadChunk.Data.Phase = async.PendingAsyncResultState
+		go agent.ReadChunk(msg, m.state.Async.ReadChunk.Data)
 		return toCmd(msg), nil
 	case async.DoneAsyncResultState:
-		err := m.state.Async.ReadChunk.Err
+		err := m.state.Async.ReadChunk.Data.Err
 		if err == io.EOF {
 			m.ResetAgentState()
 			return toCmd(msg), nil
@@ -115,49 +126,55 @@ func (m *Model) ReceiveStreamChunkHandler(msg agent.ReceiveStreamChunkMsg) (tea.
 			m.ResetAgentState()
 			return toCmd(msg), err
 		}
-		if m.state.Async.ReadChunk.Result == nil {
+		recvMsg := m.state.Async.ReadChunk.Data.Result.(agent.ReceiveStreamChunkMsg)
+		if recvMsg.AgentChunk.Id == "" {
 			m.ResetAgentState()
 			return toCmd(msg), err
 		}
 
-		recvMsg := m.state.Async.ReadChunk.Result.(*agent.ReceiveStreamChunkMsg)
 		agent.MapChunk(
+			&m.state.Agent.ChunkId,
 			&m.state.Agent.Token,
 			&m.state.Agent.ToolCall,
 			&m.state.Agent.Thinking,
 		)(recvMsg.AgentChunk)
 
-		sinkMap := map[string]func() (*[]string, string, bool){
-			"thoughts": func() (*[]string, string, bool) {
-				return &m.state.AgentThoughts, m.state.Agent.Token, false
-			},
-			"answers": func() (*[]string, string, bool) {
-				return &m.state.AgentAnswers, m.state.Agent.Token, false
-			},
-			"toolcalls": func() (*[]string, string, bool) {
-				return &m.state.AgentToolCalls, m.state.Agent.ToolCall, true
-			},
-		}
-		for k, _ := range sinkMap {
-			if (k == "thoughts" && m.state.Agent.Thinking) ||
-				(k == "answers" && !m.state.Agent.Thinking) ||
-				(k == "toolcalls" && m.state.Agent.ToolCall != "") {
-				sink, chunk, idempotent := sinkMap[k]()
-				err = agent.ProcessChunk(
-					sink,
-					chunk,
-					m.RenderMessagesUtil,
-					idempotent,
-				)
-				if err != nil {
-					m.ResetAgentState()
-					return toCmd(msg), err
+		isProcessed := slices.Contains(m.state.Agent.ProcessedChunkIds, m.state.Agent.ChunkId)
+		if !isProcessed {
+
+			sinkMap := map[string]func() (*[]string, string){
+				"thoughts": func() (*[]string, string) {
+					return &m.state.AgentThoughts, m.state.Agent.Token
+				},
+				"answers": func() (*[]string, string) {
+					return &m.state.AgentAnswers, m.state.Agent.Token
+				},
+				"toolcalls": func() (*[]string, string) {
+					return &m.state.AgentToolCalls, m.state.Agent.ToolCall
+				},
+			}
+			for k, _ := range sinkMap {
+				if (k == "thoughts" && m.state.Agent.Thinking) ||
+					(k == "answers" && !m.state.Agent.Thinking) ||
+					(k == "toolcalls" && m.state.Agent.ToolCall != "") {
+					sink, chunk := sinkMap[k]()
+					err = agent.ProcessChunk(
+						sink,
+						chunk,
+						m.state.Agent.ChunkId,
+						m.RenderMessagesUtil,
+					)
+					if err != nil {
+						return toCmd(msg), err
+					}
+					m.state.Agent.ProcessedChunkIds = append(m.state.Agent.ProcessedChunkIds, m.state.Agent.ChunkId)
+					m.state.Agent.ChunkId = ""
 				}
 			}
 		}
 
-		m.state.Async.ReadChunk.Phase = async.ReadyAsyncResultState
-		return toCmd(*recvMsg), nil
+		m.state.Async.ReadChunk.Data.Phase = async.ReadyAsyncResultState
+		return toCmd(recvMsg), nil
 	default:
 		return toCmd(msg), nil
 	}

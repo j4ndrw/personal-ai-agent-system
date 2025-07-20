@@ -14,10 +14,10 @@ import (
 	"github.com/j4ndrw/personal-ai-agent-system/client/internal/state"
 )
 
-type OnChunk func(chunk *AgentChunk)
+type OnChunk func(chunk AgentChunk)
 
 type ReceiveStreamChunkMsg struct {
-	AgentChunk *AgentChunk
+	AgentChunk AgentChunk
 	Response   *http.Response
 	Time       time.Time
 }
@@ -42,26 +42,26 @@ func OpenStream(
 	}
 
 	return ReceiveStreamChunkMsg{
-		AgentChunk: nil,
+		AgentChunk: AgentChunk{},
 		Response:   resp,
 		Time:       time.Now(),
 	}, nil
 }
 
-func ReadChunk(msg *ReceiveStreamChunkMsg, rcStateNode *state.ReadChunk) {
+func ReadChunk(msg ReceiveStreamChunkMsg, rcStateNode *state.ReadChunkData) {
 	reader := bufio.NewReader(msg.Response.Body)
 
 	body, err := reader.ReadString('\n')
 	if err == io.EOF {
 		msg.Response.Body.Close()
 
-		rcStateNode.Result = nil
+		rcStateNode.Result = ReceiveStreamChunkMsg{}
 		rcStateNode.Err = nil
 		rcStateNode.Phase = async.DoneAsyncResultState
 		return
 	}
 	if err != nil {
-		rcStateNode.Result = nil
+		rcStateNode.Result = ReceiveStreamChunkMsg{}
 		rcStateNode.Err = err
 		rcStateNode.Phase = async.DoneAsyncResultState
 		return
@@ -74,38 +74,39 @@ func ReadChunk(msg *ReceiveStreamChunkMsg, rcStateNode *state.ReadChunk) {
 		return
 	}
 
-	ac := AgentChunk{}
-	err = ac.ParseAgentChunk(&buf)
+	err = msg.AgentChunk.ParseAgentChunk(&buf)
 	if err != nil {
-		rcStateNode.Result = nil
+		rcStateNode.Result = ReceiveStreamChunkMsg{}
 		rcStateNode.Err = err
 		rcStateNode.Phase = async.DoneAsyncResultState
 		return
 	}
 
-	msg.AgentChunk = &ac
 	rcStateNode.Result = msg
 	rcStateNode.Err = nil
 	rcStateNode.Phase = async.DoneAsyncResultState
 }
 
-func MapAnswer(chunk *AgentChunk, thinking *bool) string {
+func MapAnswer(chunk AgentChunk, thinking *bool) string {
 	if *thinking != chunk.Answer.Thinking {
 		*thinking = chunk.Answer.Thinking
 	}
 	return chunk.Answer.Content
 }
 
-func MapToolCall(chunk *AgentChunk) string {
+func MapToolCall(chunk AgentChunk) string {
 	return "`" + chunk.ToolCall.ToolCall + " tool`\n```json\n" + chunk.ToolCall.JSONResult + "\n```\n\n"
 }
 
 func MapChunk(
+	chunkId *string,
 	mappedChunk *string,
 	toolCall *string,
 	thinking *bool,
 ) OnChunk {
-	return func(chunk *AgentChunk) {
+	return func(chunk AgentChunk) {
+		*chunkId = chunk.Id
+
 		if chunk.Type == "answer" && chunk.Answer.Content != "" {
 			*mappedChunk = MapAnswer(chunk, thinking)
 			return
@@ -119,13 +120,8 @@ func MapChunk(
 	}
 }
 
-func ProcessChunk(sink *[]string, chunk string, render func() error, idempotent bool) error {
-	if len(*sink) == 0 {
-		*sink = append(*sink, chunk)
-	} else if !idempotent || (*sink)[len(*sink)-1] != chunk {
-		(*sink)[len(*sink)-1] = (*sink)[len(*sink)-1] + chunk
-	}
-
+func ProcessChunk(sink *[]string, chunk string, id string, render func() error) error {
+	(*sink)[len(*sink)-1] = (*sink)[len(*sink)-1] + chunk
 	err := render()
 	if err != nil {
 		return err

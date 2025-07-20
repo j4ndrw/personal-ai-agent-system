@@ -6,6 +6,7 @@ import (
 
 type AgentChunk struct {
 	Type string `json:"type"`
+	Id   string `json:"id"`
 	Answer
 	ToolCall
 }

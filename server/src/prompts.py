@@ -1,5 +1,5 @@
 import ollama
-from src.agent.agent import agent_registry
+from src.agent.registry import agent_registry
 
 available_agents = "\n".join(
     [f"- {agent}" for agent in agent_registry.keys() if agent != "router"]
@@ -15,7 +15,7 @@ agent_instructions = "\n".join(
 router_agent_instructions = f"<router-agent>Use this agent to take the user's prompt and delegate a different agent to fulfill the task or respond to the query.</router-agent>"
 
 
-SYSTEM_PROMPT = (
+MULTI_AGENT_SYSTEM_PROMPT = (
     lambda: f"""
 You are an agentic AI application that can chat with the user,
 as well as perform tasks and provide information from reliable sources.
@@ -29,5 +29,16 @@ You have the following agents available:
 {agent_instructions}
 """
 )
+multi_agent_system_message = lambda: ollama.Message(role="system", content=MULTI_AGENT_SYSTEM_PROMPT())
 
-system_message = lambda: ollama.Message(role="system", content=SYSTEM_PROMPT())
+SUMMARIZER_SYSTEM_PROMPT = (
+    lambda: f"""
+You are responsible with summarizing the conversation provided in the prompt.
+Include details like:
+- What the thought process of the assistant was
+- What tool calls were used
+- What those tool calls returned
+- What the response was to the user's question
+"""
+)
+summarizer_system_message = lambda: ollama.Message(role="system", content=SUMMARIZER_SYSTEM_PROMPT())

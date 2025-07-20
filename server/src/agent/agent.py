@@ -1,16 +1,20 @@
 import json
 import os
 from typing import Any, Callable, Generator
+import uuid
 
 from ollama import Message
+from src.agent.independent import summarization_independent_agent
+from src.services.llm_context import get_current_context_size
+from src.services.chat import create_chat_handler
 from src.agent.registry import agent_registry
 from src.agent.types import Agent, DispatchedAgent, ToolCallResults
-from src.client import ollama_client
-from src.constants import INTERPRETATION_MODEL, NON_AGENTIC_MODEL, ROUTER_MODEL
+from src.constants import INTERPRETATION_MODEL, MAX_CONTEXT_SIZE, NON_AGENTIC_MODEL, ROUTER_MODEL
 from src.models.agent.answer import Answer
 from src.tools.toolkits.router import dispatch_agent, mark_task_as_done
 from src.tools.tools import ToolHandlers, ToolRepository, load_toolkits
 from src.utils import StatefulGenerator, load_model
+from src.history import summarized_history
 
 
 def register_agent(
@@ -39,54 +43,45 @@ def register_agent(
         tool_repository = {**tool_repository, **toolkit.repository}
         tool_handlers = {**tool_handlers, **toolkit.handlers}
 
-    def _chat(
-        history: list[Message],
-        model: str,
-        with_tools: bool,
-        think: bool,
-    ) -> Generator[str, Any, Message]:
-        final_message: Message = Message(role="assistant")
-        stream = ollama_client.chat(
-            model=model,
-            messages=history,
-            think=think,
-            stream=True,
-            tools=None if not with_tools else [*tool_repository.values()],
-        )
-        for chunk in stream:
-            if chunk.message.content:
-                yield f"{json.dumps({'type': 'answer', 'thinking': think, 'content': chunk.message.content})}\n"
-                final_message.content = (
-                    final_message.content + chunk.message.content
-                    if final_message.content
-                    else chunk.message.content
-                )
-            if chunk.message.tool_calls:
-                for tool_call in chunk.message.tool_calls:
-                    final_message.tool_calls = (
-                        [tool_call]
-                        if final_message.tool_calls is None
-                        else [*final_message.tool_calls, tool_call]
-                    )
-        return final_message
-
-    def chat(
-        *,
-        history: list[Message],
-        model: str,
-        with_tools: bool,
-        think: bool,
-    ):
-        return StatefulGenerator(
-            _chat(history, model, with_tools, think)
-        )  # pyright: ignore
+    chat = create_chat_handler(tool_repository=tool_repository)
 
     def run_agent(
         history: list[Message],
     ) -> Generator[str, Any, tuple[DispatchedAgent, bool, ToolCallResults]]:
         answer = Answer()
 
-        def maybe_agentic_response():
+        # FIXME: This is faulty
+        def summarize_chat_chunks_if_necessary(
+            history: list[Message]
+        ):
+            if get_current_context_size(history) <= MAX_CONTEXT_SIZE:
+                return None
+
+            ranges: list[tuple[int, int]] = []
+            found_user_message = False
+            start = -1
+            end = -1
+            for i, message in enumerate(history):
+                if message.role == "user" and not found_user_message:
+                    found_user_message = True
+                    start = i
+                if len(history) > i + 1 and history[i + 1].role == "user":
+                    found_user_message = False
+                    end = i + 1
+                if start != -1 and end != -1:
+                    ranges.append((start, end))
+                    start = -1
+                    end = -1
+            if start != -1 and end == -1:
+                end = len(history) - 1
+
+            stream = StatefulGenerator(summarization_independent_agent(history, ranges))
+            for token in stream:
+                yield token
+
+            return stream.ret if len(stream.ret) > 0 else None
+
+        def maybe_agentic_response(history: list[Message]):
             stream = chat(
                 history=history,
                 model=ROUTER_MODEL,
@@ -109,7 +104,7 @@ def register_agent(
 
             return tool_calls, is_agentic
 
-        def non_agentic_response():
+        def non_agentic_response(history: list[Message]):
             is_task_done = True
             stream = chat(
                 history=history,
@@ -152,7 +147,7 @@ def register_agent(
 
             return dispatched_agent, is_task_done, tool_call_results
 
-        def interpret_tool_call_result():
+        def interpret_tool_call_result(history: list[Message]):
             stream = chat(
                 history=[
                     *history,
@@ -183,14 +178,22 @@ def register_agent(
                 content=f"I need to delegate the task to the `{agent}` agent and determine what tool call to use, if applicable, and proceed from there...",
             )
 
-        def pipeline():
-            stream = StatefulGenerator(maybe_agentic_response())
+        def pipeline(history: list[Message]):
+            # stream = StatefulGenerator(summarize_chat_chunks_if_necessary(history))
+            # for token in stream:
+            #     yield token
+            #
+            # messages = history if stream.ret is None else stream.ret
+            # summarized_history.clear()
+            # summarized_history.extend(messages)
+
+            stream = StatefulGenerator(maybe_agentic_response(history))
             for token in stream:
                 yield token
             tool_calls, is_agentic = stream.ret
 
             if not is_agentic:
-                stream = StatefulGenerator(non_agentic_response())
+                stream = StatefulGenerator(non_agentic_response(history))
                 for token in stream:
                     yield token
                 is_task_done = stream.ret
@@ -203,13 +206,13 @@ def register_agent(
                 if dispatched_agent:
                     force_dispatch_to_other_agent(dispatched_agent)
                 else:
-                    stream = StatefulGenerator(interpret_tool_call_result())
+                    stream = StatefulGenerator(interpret_tool_call_result(history))
                     for token in stream:
                         yield token
 
             return answer, dispatched_agent, is_task_done, tool_call_results
 
-        stream = StatefulGenerator(pipeline())
+        stream = StatefulGenerator(pipeline(history))
         for token in stream:
             yield token
         answer, dispatched_agent, is_task_done, tool_call_results = stream.ret
@@ -270,7 +273,7 @@ def agentic_loop(
 
         dispatched_agent, is_task_done, tool_call_results = stream.ret
         for tool_call, result in tool_call_results:
-            yield f"{json.dumps({'type': 'tool_call', 'tool_call': tool_call, 'result': result})}\n"
+            yield f"{json.dumps({'id': str(uuid.uuid4()), 'type': 'tool_call', 'tool_call': tool_call, 'result': result})}\n"
 
         if is_task_done:
             break
