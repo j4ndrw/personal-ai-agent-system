@@ -1,4 +1,6 @@
+from typing import Any
 import requests
+from src.agent.independent import web_summarization_independent_agent
 from ddgs import DDGS
 from readability.readability import urllib
 from src.constants import SEARXNG_HOST
@@ -17,7 +19,7 @@ def search_on_duckduckgo(query: str, max_results: int) -> list[dict[str, str]]:
         return []
 
 
-def search(query: str, max_results: int) -> list[dict[str, str]] | None:
+def search(query: str, max_results: int) -> dict[str, Any] | None:
     query = urllib.parse.quote(query)
 
     spoofed_user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
@@ -30,7 +32,7 @@ def search(query: str, max_results: int) -> list[dict[str, str]] | None:
 
     results = response.json().get("results", [])
 
-    contexts: list[dict[str, str]] = []
+    contexts: list[tuple[str, str, str]] = []
     visited_index = 0
     while len(contexts) < min(max_results, len(results)) and visited_index < len(
         results
@@ -47,14 +49,11 @@ def search(query: str, max_results: int) -> list[dict[str, str]] | None:
                 continue
 
             html = search_response.text
-            contexts.append(
-                {
-                    "url": result["url"],
-                    "title": result["title"],
-                    "content": html_to_text(html),
-                }
-            )
+            contexts.append((result["url"], result["title"], html_to_text(html)))
         except Exception:
             continue
 
-    return contexts
+    return {
+        "sources": [{ "url": url, "title": title } for url, title, _ in contexts],
+        "content": web_summarization_independent_agent(contexts)
+    }

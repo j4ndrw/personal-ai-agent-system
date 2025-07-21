@@ -1,20 +1,17 @@
 import json
 import os
-from typing import Any, Callable, Generator
 import uuid
+from typing import Any, Callable, Generator
 
 from ollama import Message
-from src.agent.independent import summarization_independent_agent
-from src.services.llm_context import get_current_context_size
-from src.services.chat import create_chat_handler
 from src.agent.registry import agent_registry
 from src.agent.types import Agent, DispatchedAgent, ToolCallResults
-from src.constants import INTERPRETATION_MODEL, MAX_CONTEXT_SIZE, NON_AGENTIC_MODEL, ROUTER_MODEL
+from src.constants import INTERPRETATION_MODEL, NON_AGENTIC_MODEL, ROUTER_MODEL
 from src.models.agent.answer import Answer
+from src.services.chat import create_chat_handler
 from src.tools.toolkits.router import dispatch_agent, mark_task_as_done
 from src.tools.tools import ToolHandlers, ToolRepository, load_toolkits
 from src.utils import StatefulGenerator, load_model
-from src.history import summarized_history
 
 
 def register_agent(
@@ -50,36 +47,37 @@ def register_agent(
     ) -> Generator[str, Any, tuple[DispatchedAgent, bool, ToolCallResults]]:
         answer = Answer()
 
-        # FIXME: This is faulty
-        def summarize_chat_chunks_if_necessary(
-            history: list[Message]
-        ):
-            if get_current_context_size(history) <= MAX_CONTEXT_SIZE:
-                return None
-
-            ranges: list[tuple[int, int]] = []
-            found_user_message = False
-            start = -1
-            end = -1
-            for i, message in enumerate(history):
-                if message.role == "user" and not found_user_message:
-                    found_user_message = True
-                    start = i
-                if len(history) > i + 1 and history[i + 1].role == "user":
-                    found_user_message = False
-                    end = i + 1
-                if start != -1 and end != -1:
-                    ranges.append((start, end))
-                    start = -1
-                    end = -1
-            if start != -1 and end == -1:
-                end = len(history) - 1
-
-            stream = StatefulGenerator(summarization_independent_agent(history, ranges))
-            for token in stream:
-                yield token
-
-            return stream.ret if len(stream.ret) > 0 else None
+        # TODO+FIXME: Need to figure out why this is faulty...
+        # def summarize_chat_chunks_if_necessary(
+        #     history: list[Message]
+        # ):
+        #     if get_current_context_size(history) <= MAX_CONTEXT_SIZE:
+        #         return None
+        #
+        #     history_chunks: list[list[Message]] = []
+        #     start = -1
+        #     end = -1
+        #
+        #     system_message, *messages = history
+        #     for i, message in enumerate(messages):
+        #         if message.role == "user":
+        #             start = i
+        #         elif i + 1 == len(history) or (i + 1 < len(history) and history[i + 1].role == "user"):
+        #             end = i+1
+        #         if start == -1 and end == -1:
+        #             history_chunks.append(messages[start:end])
+        #             start = -1
+        #             end = -1
+        #
+        #     new_history: list[Message] = [system_message]
+        #     for chunk in history_chunks:
+        #         stream = StatefulGenerator(summarization_independent_agent(chunk))
+        #         for token in stream:
+        #             yield token
+        #
+        #         new_history.extend(stream.ret)
+        #
+        #     return new_history
 
         def maybe_agentic_response(history: list[Message]):
             stream = chat(
@@ -266,6 +264,7 @@ def agentic_loop(
 ):
     agent = start_from_agent
     epoch = 1
+
     while True:
         stream = StatefulGenerator(agent(history))
         for token in stream:

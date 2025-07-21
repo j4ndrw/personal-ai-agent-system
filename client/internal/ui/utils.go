@@ -31,8 +31,8 @@ func (m *Model) GetFullUnstyledMessagesUtil() string {
 	sb := ""
 	for i, userMessage := range m.state.UserMessages {
 		sb += userMessage + "\n"
-		sb += m.state.AgentAnswers[i] + "\n"
 		sb += m.state.AgentThoughts[i] + "\n"
+		sb += m.state.AgentAnswers[i] + "\n"
 		sb += m.state.AgentToolCalls[i] + "\n"
 		sb += "\n---\n"
 	}

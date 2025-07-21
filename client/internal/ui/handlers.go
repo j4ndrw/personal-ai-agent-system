@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/atotto/clipboard"
@@ -45,7 +46,10 @@ func (m *Model) ChatMessageSendHandler() (tea.Cmd, error) {
 		return nil, nil
 	}
 
-	message := "> " + prompt + "\n"
+	message := ""
+	for _, line := range strings.Split(prompt, "\n") {
+		message += "> " + line + "\n"
+	}
 	m.state.UserMessages = append(m.state.UserMessages, message)
 	m.state.AgentAnswers = append(m.state.AgentAnswers, "")
 	m.state.AgentThoughts = append(m.state.AgentThoughts, "")

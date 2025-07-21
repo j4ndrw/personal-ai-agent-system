@@ -42,6 +42,11 @@ def create_chat_handler(
                         if final_message.tool_calls is None
                         else [*final_message.tool_calls, tool_call]
                     )
+
+        if final_message.content is not None and len(final_message.content) > 0:
+            newline = "\n"
+            yield f"{json.dumps({'id': str(uuid.uuid4()), 'type': 'answer', 'thinking': True if mark_as_thinking else think, 'content': newline})}\n"
+
         return final_message
 
     def chat(
@@ -55,5 +60,35 @@ def create_chat_handler(
         return StatefulGenerator(
             _chat(history, model, with_tools, think, mark_as_thinking)
         )  # pyright: ignore
+
+    return chat
+
+def create_chat_handler_no_stream(
+    *,
+    tool_repository: ToolRepository | None = None
+):
+    def _chat(
+        history: list[Message],
+        model: str,
+        with_tools: bool,
+        think: bool,
+    ) -> Message:
+        response = ollama_client.chat(
+            model=model,
+            messages=history,
+            think=think,
+            stream=False,
+            tools=None if not with_tools or tool_repository is None else [*tool_repository.values()],
+        )
+        return response.message
+
+    def chat(
+        *,
+        history: list[Message],
+        model: str,
+        with_tools: bool,
+        think: bool,
+    ):
+        return _chat(history, model, with_tools, think)
 
     return chat

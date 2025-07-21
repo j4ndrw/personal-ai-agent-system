@@ -42,3 +42,18 @@ Include details like:
 """
 )
 summarizer_system_message = lambda: ollama.Message(role="system", content=SUMMARIZER_SYSTEM_PROMPT())
+
+WEB_SUMMARIZER_SYSTEM_PROMPT = (
+    lambda: f"""
+You are responsible with summarizing the content found using the web search tool.
+- Retain details concise and relevant.
+- Point out any interesting details (e.g. code snippets, historical events, places of interest, etc...)
+- Cite the source
+
+IMPORTANT:
+- DO NOT summarize code snippets
+- DO NOT summarize step-by-step guides
+- DO NOT summarize historical events
+"""
+)
+web_summarizer_system_message = lambda: ollama.Message(role="system", content=WEB_SUMMARIZER_SYSTEM_PROMPT())
