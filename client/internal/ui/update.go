@@ -35,8 +35,8 @@ func (m *Model) WindowSizeUpdate(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) QuitKeyUpdate() (tea.Model, tea.Cmd) {
-	m.QuitKeyHandler()
-	return m, tea.Quit
+	cmd := m.QuitKeyHandler()
+	return m, cmd
 }
 
 func (m *Model) ChatMessageSendUpdate() (tea.Model, tea.Cmd) {

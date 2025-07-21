@@ -1,6 +1,10 @@
 package ui
 
 import (
+	"log"
+	"os/exec"
+	"strings"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/j4ndrw/personal-ai-agent-system/client/internal/state"
@@ -64,4 +68,25 @@ func (m *Model) ToCmd(msg tea.Msg) tea.Cmd {
 	return func() tea.Msg {
 		return msg
 	}
+}
+
+func (m *Model) ShutdownContainerDependencies() tea.Cmd {
+	filterCmd := exec.Command("docker", "ps", "-aq", "--filter", "name=paias")
+	output, err := filterCmd.Output()
+	if err != nil {
+		log.Fatal("Error executing command:", err)
+	}
+
+	containerIds := strings.Split(string(output), "\n")
+	if len(containerIds) == 0 {
+		log.Fatal("No containers found with the name 'paias'.")
+		return nil
+	}
+
+	var processTeaCmds []tea.Cmd
+	for _, containerId := range containerIds {
+		rmCmd := exec.Command("docker", "rm", "-f", containerId)
+		processTeaCmds = append(processTeaCmds, tea.ExecProcess(rmCmd, nil))
+	}
+	return tea.Batch(processTeaCmds...)
 }

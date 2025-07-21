@@ -37,8 +37,8 @@ func (m *Model) WindowSizeHandler(msg tea.WindowSizeMsg) error {
 	return nil
 }
 
-func (m *Model) QuitKeyHandler() {
-	fmt.Println(m.textinput.Value())
+func (m *Model) QuitKeyHandler() tea.Cmd {
+	return tea.Sequence(m.ShutdownContainerDependencies(), tea.Quit)
 }
 
 func (m *Model) resetAgentState() {
@@ -48,7 +48,7 @@ func (m *Model) resetAgentState() {
 	m.state.Waiting = false
 	m.state.Agent.ProcessedChunkIds = []string{}
 	m.state.Agent.ChunkId = ""
-	m.state.Mode = state.NormalMode
+	m.state.Mode = state.InsertMode
 }
 
 func (m *Model) ChatMessageSendHandler() (tea.Cmd, error) {
@@ -284,6 +284,7 @@ func (m *Model) CycleChatModeHandler() (tea.Cmd, error) {
 		}
 
 		m.textinput.Reset()
+		m.textinput.SetValue("@")
 		m.textinput.SetSuggestions(suggestions)
 		break
 

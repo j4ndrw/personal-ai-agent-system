@@ -56,6 +56,13 @@ func InitialModel() Model {
 		log.Fatal(err)
 	}
 
+	var suggestions []string
+	for _, agent := range *agents {
+		suggestions = append(suggestions, fmt.Sprintf("@%s", agent))
+	}
+
+	ti.SetSuggestions(suggestions)
+
 	return Model{
 		textinput:        ti,
 		spinner:          sp,

@@ -8,6 +8,7 @@ import (
 
 func TextInputComponent(placeholder string, width int) textinput.Model {
 	ti := textinput.New()
+	ti.SetValue("@")
 	ti.Placeholder = placeholder
 	ti.Focus()
 
