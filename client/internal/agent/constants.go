@@ -1,5 +1,8 @@
 package agent
 
 const (
-	Endpoint string = "http://localhost:6969/api/chat"
+	AgenticAutoEndpoint   string = "http://localhost:6969/api/agentic/auto"
+	AgenticManualEndpoint string = "http://localhost:6969/api/agentic/manual"
+	SimpleEndpoint        string = "http://localhost:6969/api/simple"
+	GetAgentsEndpoint     string = "http://localhost:6969/api/agents"
 )

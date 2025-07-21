@@ -2,7 +2,7 @@ package ui
 
 import (
 	"fmt"
-	"strings"
+	"log"
 	"time"
 
 	"github.com/atotto/clipboard"
@@ -11,17 +11,18 @@ import (
 	"github.com/j4ndrw/personal-ai-agent-system/client/internal/agent"
 	"github.com/j4ndrw/personal-ai-agent-system/client/internal/async"
 	"github.com/j4ndrw/personal-ai-agent-system/client/internal/state"
+	"github.com/j4ndrw/personal-ai-agent-system/client/internal/stringtransforms"
 )
 
 func (m *Model) WindowSizeHandler(msg tea.WindowSizeMsg) error {
-	m.textarea.SetWidth(msg.Width)
+	m.textinput.Width = msg.Width
 	m.viewport.Width = msg.Width
 	m.viewport.Height = func() int {
 		diff := msg.Height - lipgloss.Height(Gap)
 		if m.state.Waiting {
 			return diff - m.spinner.Style.GetHeight()
 		}
-		return diff - m.textarea.Height()
+		return diff - 1
 	}()
 
 	if len(m.state.UserMessages) > 0 {
@@ -37,19 +38,41 @@ func (m *Model) WindowSizeHandler(msg tea.WindowSizeMsg) error {
 }
 
 func (m *Model) QuitKeyHandler() {
-	fmt.Println(m.textarea.Value())
+	fmt.Println(m.textinput.Value())
+}
+
+func (m *Model) resetAgentState() {
+	m.state.Async.ReadChunk.Data = nil
+	m.state.Agent.Token = ""
+	m.state.Agent.ToolCall = ""
+	m.state.Waiting = false
+	m.state.Agent.ProcessedChunkIds = []string{}
+	m.state.Agent.ChunkId = ""
+	m.state.Mode = state.NormalMode
 }
 
 func (m *Model) ChatMessageSendHandler() (tea.Cmd, error) {
-	prompt := m.textarea.Value()
+	m.state.Mode = state.NormalMode
+
+	prompt := m.textinput.Value()
 	if prompt == "" {
 		return nil, nil
 	}
 
-	message := ""
-	for _, line := range strings.Split(prompt, "\n") {
-		message += "> " + line + "\n"
+	if m.state.ChatMode == state.AgenticManualChatMode {
+		var err error
+		m.state.Agent.SelectedAgent, prompt, err = stringtransforms.ExtractAgentAndPrompt(
+			prompt,
+			(*agent.Agents)(&m.state.Agents),
+		)
+		if err != nil {
+			m.state.Err = err
+			log.Fatal(err)
+			return nil, nil
+		}
 	}
+
+	message := stringtransforms.MapUserMessage(prompt)
 	m.state.UserMessages = append(m.state.UserMessages, message)
 	m.state.AgentAnswers = append(m.state.AgentAnswers, "")
 	m.state.AgentThoughts = append(m.state.AgentThoughts, "")
@@ -59,14 +82,28 @@ func (m *Model) ChatMessageSendHandler() (tea.Cmd, error) {
 	if err != nil {
 		return nil, err
 	}
-	m.textarea.Reset()
+	m.textinput.Reset()
 
-	msg, err := agent.OpenStream(prompt)
-	if err != nil {
-		return nil, err
+	endpointMap := map[state.ChatMode]string{
+		state.SimpleChatMode:        agent.SimpleEndpoint,
+		state.AgenticAutoChatMode:   agent.AgenticAutoEndpoint,
+		state.AgenticManualChatMode: agent.AgenticManualEndpoint,
+	}
+	endpoint := endpointMap[m.state.ChatMode]
+
+	var msg agent.ReceiveStreamChunkMsg
+	if m.state.ChatMode == state.AgenticManualChatMode {
+		msg, err = agent.OpenAgenticManualStream(prompt, m.state.Agent.SelectedAgent, endpoint)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		msg, err = agent.OpenStream(prompt, endpoint)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	m.ResetAgentState()
 	m.state.Waiting = true
 	m.state.Async.ReadChunk.Data = &state.ReadChunkData{
 		Result: agent.ReceiveStreamChunkMsg{},
@@ -74,15 +111,6 @@ func (m *Model) ChatMessageSendHandler() (tea.Cmd, error) {
 		Phase:  async.ReadyAsyncResultState,
 	}
 	return m.ToCmd(msg), nil
-}
-
-func (m *Model) ResetAgentState() {
-	m.state.Async.ReadChunk.Data = nil
-	m.state.Agent.Token = ""
-	m.state.Agent.ToolCall = ""
-	m.state.Waiting = false
-	m.state.Agent.ProcessedChunkIds = []string{}
-	m.state.Agent.ChunkId = ""
 }
 
 func (m *Model) ReceiveStreamChunkTickHandler(msg agent.ReceiveStreamChunkTickMsg) tea.Cmd {
@@ -112,70 +140,42 @@ func (m *Model) ReceiveStreamChunkHandler(msg agent.ReceiveStreamChunkMsg) (tea.
 		})
 	}
 
-	switch m.state.Async.ReadChunk.Data.Phase {
-	case async.ReadyAsyncResultState:
-		{
-			m.state.Async.ReadChunk.Data.Phase = async.PendingAsyncResultState
-			go agent.ReadChunk(msg, m.state.Async.ReadChunk.Data)
-			return toCmd(msg), nil
-		}
-
-	case async.PendingAsyncResultState:
-		{
-			return toCmd(msg), nil
-		}
-
-	default:
-		{
-			recvMsg := m.state.Async.ReadChunk.Data.Result.(agent.ReceiveStreamChunkMsg)
-			err := m.state.Async.ReadChunk.Data.Err
-
-			if err != nil || recvMsg.AgentChunk.Id == "" {
-				m.ResetAgentState()
-				return toCmd(msg), err
-			}
-
-			agent.MapChunk(
-				&m.state.Agent.ChunkId,
-				&m.state.Agent.Token,
-				&m.state.Agent.ToolCall,
-				&m.state.Agent.Thinking,
-			)(recvMsg.AgentChunk)
-
-			sinkMap := map[string]func() (*[]string, string){
-				"thoughts": func() (*[]string, string) {
-					return &m.state.AgentThoughts, m.state.Agent.Token
-				},
-				"answers": func() (*[]string, string) {
-					return &m.state.AgentAnswers, m.state.Agent.Token
-				},
-				"toolcalls": func() (*[]string, string) {
-					return &m.state.AgentToolCalls, m.state.Agent.ToolCall
-				},
-			}
-			for k, _ := range sinkMap {
-				thoughts := k == "thoughts" && m.state.Agent.Thinking && m.state.Agent.Token != ""
-				answers := k == "answers" && !m.state.Agent.Thinking && m.state.Agent.Token != ""
-				toolcalls := k == "toolcalls" && m.state.Agent.ToolCall != ""
-				if thoughts || answers || toolcalls {
-					sink, chunk := sinkMap[k]()
-					if err := agent.ProcessChunk(
-						sink,
-						chunk,
-						m.state.Agent.ChunkId,
-						&m.state.Agent.ProcessedChunkIds,
-						m.RenderMessagesUtil,
-					); err != nil {
-						m.ResetAgentState()
-						return toCmd(msg), err
-					}
-				}
-			}
-
-			m.state.Async.ReadChunk.Data.Phase = async.ReadyAsyncResultState
-			return toCmd(recvMsg), nil
-		}
+	if m.state.Async.ReadChunk.Data.Phase == async.ReadyAsyncResultState {
+		m.state.Async.ReadChunk.Data.Phase = async.PendingAsyncResultState
+		go agent.ReadChunk(msg, m.state.Async.ReadChunk.Data)
 	}
+
+	if m.state.Async.ReadChunk.Data.Phase != async.DoneAsyncResultState {
+		return toCmd(msg), nil
+	}
+
+	recvMsg := m.state.Async.ReadChunk.Data.Result.(agent.ReceiveStreamChunkMsg)
+	err := m.state.Async.ReadChunk.Data.Err
+
+	if err != nil || recvMsg.AgentChunk.Id == "" {
+		m.resetAgentState()
+		return toCmd(msg), err
+	}
+
+	err = agent.
+		CreateSinkMap(&m.state).
+		MapAgentChunk(
+			recvMsg.AgentChunk,
+			&m.state.Agent,
+		).
+		ProcessChunk(m.state, agent.ProcessChunk(
+			m.state.Agent.ChunkId,
+			&m.state.Agent.ProcessedChunkIds,
+			m.RenderMessagesUtil,
+		))
+	if err != nil {
+		m.resetAgentState()
+		return toCmd(msg), err
+	}
+
+	m.state.Async.ReadChunk.Data.Phase = async.ReadyAsyncResultState
+	return toCmd(recvMsg), nil
+
 }
 
 func (m *Model) ScrollUpHandler() (tea.Cmd, error) {
@@ -198,6 +198,10 @@ func (m *Model) YankHandler() (tea.Cmd, error) {
 }
 
 func (m *Model) InspectThoughtsHandler() (tea.Cmd, error) {
+	if m.state.ChatMode == state.SimpleChatMode {
+		return nil, nil
+	}
+
 	m.state.AgentMessageToShow = state.AgentMessageShowThoughts
 	err := m.RenderMessagesUtil()
 	if err != nil {
@@ -207,6 +211,10 @@ func (m *Model) InspectThoughtsHandler() (tea.Cmd, error) {
 }
 
 func (m *Model) InspectAnswersHandler() (tea.Cmd, error) {
+	if m.state.ChatMode == state.SimpleChatMode {
+		return nil, nil
+	}
+
 	m.state.AgentMessageToShow = state.AgentMessageShowAnswers
 	err := m.RenderMessagesUtil()
 	if err != nil {
@@ -216,6 +224,10 @@ func (m *Model) InspectAnswersHandler() (tea.Cmd, error) {
 }
 
 func (m *Model) InspectToolCallsHandler() (tea.Cmd, error) {
+	if m.state.ChatMode == state.SimpleChatMode {
+		return nil, nil
+	}
+
 	m.state.AgentMessageToShow = state.AgentMessageShowToolCalls
 	err := m.RenderMessagesUtil()
 	if err != nil {
@@ -226,7 +238,7 @@ func (m *Model) InspectToolCallsHandler() (tea.Cmd, error) {
 
 func (m *Model) ToNormalModeHandler() (tea.Cmd, error) {
 	m.state.Mode = state.NormalMode
-	m.textarea.Blur()
+	m.textinput.Blur()
 	return nil, nil
 }
 
@@ -235,12 +247,7 @@ func (m *Model) ToInsertModeHandler() (tea.Cmd, error) {
 		return nil, nil
 	}
 	m.state.Mode = state.InsertMode
-	return m.textarea.Focus(), nil
-}
-
-func (m *Model) NewLineHandler() (tea.Cmd, error) {
-	m.textarea.KeyMap.InsertNewline.SetEnabled(true)
-	return nil, nil
+	return m.textinput.Focus(), nil
 }
 
 func (m *Model) ScrollToTopHandler() (tea.Cmd, error) {
@@ -250,5 +257,44 @@ func (m *Model) ScrollToTopHandler() (tea.Cmd, error) {
 
 func (m *Model) ScrollToBottomHandler() (tea.Cmd, error) {
 	m.viewport.GotoBottom()
+	return nil, nil
+}
+
+func (m *Model) CycleChatModeHandler() (tea.Cmd, error) {
+	if m.state.Waiting {
+		return nil, nil
+	}
+
+	switch m.state.ChatMode {
+	case state.SimpleChatMode:
+		m.state.ChatMode = state.AgenticAutoChatMode
+		m.state.Agent.SelectedAgent = ""
+
+		m.textinput.Reset()
+		m.textinput.SetSuggestions([]string{})
+		break
+
+	case state.AgenticAutoChatMode:
+		m.state.ChatMode = state.AgenticManualChatMode
+		m.state.Agent.SelectedAgent = ""
+
+		var suggestions []string
+		for _, agent := range m.state.Agents {
+			suggestions = append(suggestions, fmt.Sprintf("@%s", agent))
+		}
+
+		m.textinput.Reset()
+		m.textinput.SetSuggestions(suggestions)
+		break
+
+	case state.AgenticManualChatMode:
+		m.state.ChatMode = state.SimpleChatMode
+		m.state.Agent.SelectedAgent = ""
+		m.state.AgentMessageToShow = state.AgentMessageShowAnswers
+
+		m.textinput.Reset()
+		m.textinput.SetSuggestions([]string{})
+		break
+	}
 	return nil, nil
 }

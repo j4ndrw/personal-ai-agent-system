@@ -15,8 +15,6 @@ import (
 	"github.com/j4ndrw/personal-ai-agent-system/client/internal/state"
 )
 
-type OnChunk func(chunk AgentChunk)
-
 type ReceiveStreamChunkMsg struct {
 	AgentChunk AgentChunk
 	Response   *http.Response
@@ -26,6 +24,7 @@ type ReceiveStreamChunkTickMsg ReceiveStreamChunkMsg
 
 func OpenStream(
 	prompt string,
+	endpoint string,
 ) (ReceiveStreamChunkMsg, error) {
 	bodyData, err := json.Marshal(map[string]string{"prompt": prompt})
 	if err != nil {
@@ -34,7 +33,34 @@ func OpenStream(
 
 	http.DefaultClient.Timeout = 0
 	resp, err := http.Post(
-		Endpoint,
+		endpoint,
+		"application/json",
+		bytes.NewBuffer(bodyData),
+	)
+	if err != nil {
+		return ReceiveStreamChunkMsg{}, err
+	}
+
+	return ReceiveStreamChunkMsg{
+		AgentChunk: AgentChunk{},
+		Response:   resp,
+		Time:       time.Now(),
+	}, nil
+}
+
+func OpenAgenticManualStream(
+	prompt string,
+	agent string,
+	endpoint string,
+) (ReceiveStreamChunkMsg, error) {
+	bodyData, err := json.Marshal(map[string]string{"prompt": prompt, "agent": agent})
+	if err != nil {
+		return ReceiveStreamChunkMsg{}, err
+	}
+
+	http.DefaultClient.Timeout = 0
+	resp, err := http.Post(
+		endpoint,
 		"application/json",
 		bytes.NewBuffer(bodyData),
 	)
@@ -88,53 +114,22 @@ func ReadChunk(msg ReceiveStreamChunkMsg, rcStateNode *state.ReadChunkData) {
 	rcStateNode.Phase = async.DoneAsyncResultState
 }
 
-func MapAnswer(chunk AgentChunk, thinking *bool) string {
-	if *thinking != chunk.Answer.Thinking {
-		*thinking = chunk.Answer.Thinking
-	}
-	return chunk.Answer.Content
-}
-
-func MapToolCall(chunk AgentChunk) string {
-	return "`" + chunk.ToolCall.ToolCall + " tool`\n```json\n" + chunk.ToolCall.JSONResult + "\n```\n\n"
-}
-
-func MapChunk(
-	chunkId *string,
-	mappedChunk *string,
-	toolCall *string,
-	thinking *bool,
-) OnChunk {
-	return func(chunk AgentChunk) {
-		*chunkId = chunk.Id
-		*mappedChunk = ""
-		*toolCall = ""
-
-		if chunk.Type == "answer" && chunk.Answer.Content != "" {
-			*mappedChunk = MapAnswer(chunk, thinking)
-		}
-		if chunk.Type == "tool_call" && chunk.ToolCall.ToolCall != "" {
-			*toolCall = MapToolCall(chunk)
-		}
-	}
-}
-
 func ProcessChunk(
-	sink *[]string,
-	chunk string,
 	id string,
 	processedChunkIds *[]string,
 	render func() error,
-) error {
-	if slices.Contains(*processedChunkIds, id) {
+) func(sink *[]string, chunk string) error {
+	return func(sink *[]string, chunk string) error {
+		if slices.Contains(*processedChunkIds, id) {
+			return nil
+		}
+
+		(*sink)[len(*sink)-1] = (*sink)[len(*sink)-1] + chunk
+		(*processedChunkIds) = append(*processedChunkIds, id)
+		err := render()
+		if err != nil {
+			return err
+		}
 		return nil
 	}
-
-	(*sink)[len(*sink)-1] = (*sink)[len(*sink)-1] + chunk
-	(*processedChunkIds) = append(*processedChunkIds, id)
-	err := render()
-	if err != nil {
-		return err
-	}
-	return nil
 }

@@ -12,6 +12,7 @@ from src.services.chat import create_chat_handler
 from src.tools.toolkits.router import dispatch_agent, mark_task_as_done
 from src.tools.tools import ToolHandlers, ToolRepository, load_toolkits
 from src.utils import StatefulGenerator, load_model
+from src.prompts import multi_agent_system_message
 
 
 def register_agent(
@@ -40,7 +41,7 @@ def register_agent(
         tool_repository = {**tool_repository, **toolkit.repository}
         tool_handlers = {**tool_handlers, **toolkit.handlers}
 
-    chat = create_chat_handler(tool_repository=tool_repository)
+    chat = create_chat_handler(agent_name=name, tool_repository=tool_repository)
 
     def run_agent(
         history: list[Message],
@@ -149,6 +150,10 @@ def register_agent(
             stream = chat(
                 history=[
                     *history,
+                    Message(
+                        role="assistant",
+                        content="I need to interpret the following tool calls and provide the user with the answer to their question. I will not reference what tool calls I used to provide my answer."
+                    ),
                     *[
                         message
                         for message in [
@@ -200,13 +205,21 @@ def register_agent(
             dispatched_agent, is_task_done, tool_call_results = (
                 try_to_execute_tool_calls(tool_calls)
             )
+
             if len(tool_call_results) > 0:
-                if dispatched_agent:
-                    force_dispatch_to_other_agent(dispatched_agent)
-                else:
+                if dispatched_agent is None:
                     stream = StatefulGenerator(interpret_tool_call_result(history))
                     for token in stream:
                         yield token
+
+                elif len(agent_registry[dispatched_agent].available_tools.keys()) > 0: # pyright: ignore
+                    force_dispatch_to_other_agent(dispatched_agent)
+
+                else:
+                    stream = StatefulGenerator(non_agentic_response(history))
+                    for token in stream:
+                        yield token
+                    is_task_done = stream.ret
 
             return answer, dispatched_agent, is_task_done, tool_call_results
 
@@ -266,6 +279,13 @@ def agentic_loop(
     epoch = 1
 
     while True:
+        if len(history) == 0:
+            history.append(multi_agent_system_message(agent.name)) # pyright: ignore
+        else:
+            if history[0].role == 'system':
+                history.pop(0)
+            history.insert(0, multi_agent_system_message(agent.name)) # pyright: ignore
+
         stream = StatefulGenerator(agent(history))
         for token in stream:
             yield token

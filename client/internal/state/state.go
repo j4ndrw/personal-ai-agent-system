@@ -10,6 +10,7 @@ type AgentState struct {
 	Token             string
 	Thinking          bool
 	ToolCall          string
+	SelectedAgent         string
 }
 
 type ReadChunkData struct {
@@ -32,6 +33,8 @@ type State struct {
 	AgentAnswers       []string
 	AgentToolCalls     []string
 	AgentMessageToShow AgentMessageToShow
+	ChatMode           ChatMode
+	Agents             []string
 	Err                error
 	Waiting            bool
 	Agent              AgentState

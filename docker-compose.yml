@@ -27,7 +27,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: "4g"
+          memory: "6g"
     read_only: true
     volumes:
       - ollama:/root/.ollama
@@ -47,7 +47,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: "4g"
+          memory: "6g"
     volumes:
       - ollama:/root/.ollama
     environment:

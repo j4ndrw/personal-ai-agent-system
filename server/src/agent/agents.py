@@ -11,7 +11,7 @@ chat_agent = register_agent(
 )
 web_search_agent = register_agent(
     name="web_search",
-    when_to_dispatch="user asks for information on something",
+    when_to_dispatch="user asks for information on something or when asked coding questions",
     toolkits=["web_search"],
 )
 router_agent = register_agent(name="router", toolkits=["router"])

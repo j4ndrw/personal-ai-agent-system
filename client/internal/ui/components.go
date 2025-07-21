@@ -2,29 +2,28 @@ package ui
 
 import (
 	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
 )
 
-func TextAreaComponent(placeholder string, width int, height int) textarea.Model {
-	ta := textarea.New()
-	ta.Placeholder = placeholder
-	ta.Focus()
+func TextInputComponent(placeholder string, width int) textinput.Model {
+	ti := textinput.New()
+	ti.Placeholder = placeholder
+	ti.Focus()
 
-	ta.Prompt = PromptPrefix
+	ti.Prompt = PromptPrefix
+	ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
+	ti.Cursor.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
 
-	ta.SetWidth(width)
-	ta.SetHeight(height)
+	ti.ShowSuggestions = true
+	ti.CharLimit = 8000
 
-	baseStyle := lipgloss.NewStyle()
-	ta.FocusedStyle.CursorLine = baseStyle
-	ta.BlurredStyle.Base = baseStyle.Faint(true)
+	ti.Width = width
 
-	ta.ShowLineNumbers = true
+	ti.Cursor.Style = lipgloss.NewStyle()
+	ti.Cursor.TextStyle = lipgloss.NewStyle().Faint(true)
 
-	ta.KeyMap.InsertNewline.SetEnabled(true)
-
-	return ta
+	return ti
 }
 
 func SpinnerComponent() spinner.Model {

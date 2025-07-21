@@ -1,5 +1,6 @@
 ROUTER_MODEL = "qwen3:4b"
 NON_AGENTIC_MODEL = "llama3.2:1b"
+SIMPLE_MODEL = "llama3.2:3b"
 INTERPRETATION_MODEL = "qwen3:0.6b"
 
 SEARXNG_HOST = "http://searxng:8080"

@@ -4,12 +4,11 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strings"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
@@ -21,7 +20,7 @@ import (
 
 type Model struct {
 	viewport         viewport.Model
-	textarea         textarea.Model
+	textinput        textinput.Model
 	help             help.Model
 	keys             help.KeyMap
 	spinner          spinner.Model
@@ -35,9 +34,9 @@ func InitialModel() Model {
 		log.Fatal(err)
 	}
 
-	ta := TextAreaComponent("Chat with the agent system...", w, 1)
+	ti := TextInputComponent("Chat with the agent system...", w)
 	sp := SpinnerComponent()
-	vph := h - ta.Height() - 5 - lipgloss.Height(Gap)
+	vph := h - 6 - lipgloss.Height(Gap)
 	vp := viewport.New(w, vph)
 	vp.Style = lipgloss.
 		NewStyle().
@@ -52,8 +51,13 @@ func InitialModel() Model {
 		log.Fatal(err)
 	}
 
+	agents, err := agent.GetAgents()
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	return Model{
-		textarea:         ta,
+		textinput:        ti,
 		spinner:          sp,
 		viewport:         vp,
 		help:             hlp,
@@ -66,13 +70,16 @@ func InitialModel() Model {
 			AgentAnswers:       []string{},
 			AgentToolCalls:     []string{},
 			AgentMessageToShow: state.AgentMessageShowAnswers,
+			ChatMode:           state.AgenticManualChatMode,
 			Agent: state.AgentState{
 				ProcessedChunkIds: []string{},
 				ChunkId:           "",
 				ToolCall:          "",
 				Token:             "",
 				Thinking:          false,
+				SelectedAgent:     "",
 			},
+			Agents:  *agents,
 			Err:     nil,
 			Waiting: false,
 			Async:   state.AsyncState{},
@@ -81,7 +88,7 @@ func InitialModel() Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	return textarea.Blink
+	return textinput.Blink
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -90,7 +97,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		vpCmd tea.Cmd
 	)
 
-	m.textarea, tiCmd = m.textarea.Update(msg)
+	m.textinput, tiCmd = m.textinput.Update(msg)
 	m.viewport, vpCmd = m.viewport.Update(msg)
 
 	switch m.state.Mode {
@@ -128,8 +135,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case key.Matches(msg, keys.ToNormalMode):
 				return m.ToNormalModeUpdate()
 
-			case key.Matches(msg, keys.NewLine):
-				return m.NewLineUpdate()
+			case key.Matches(msg, keys.SendMessage):
+				return m.ChatMessageSendUpdate()
 			}
 		case NormalModeKeyMap:
 			switch {
@@ -141,9 +148,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			case key.Matches(msg, keys.ScrollDown):
 				return m.ScrollDownUpdate()
-
-			case key.Matches(msg, keys.SendMessage):
-				return m.ChatMessageSendUpdate()
 
 			case key.Matches(msg, keys.Yank):
 				return m.YankUpdate()
@@ -165,6 +169,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			case key.Matches(msg, keys.ScrollToBottom):
 				return m.ScrollToBottomUpdate()
+
+			case key.Matches(msg, keys.CycleChatModes):
+				return m.CycleChatModeUpdate()
 			}
 		}
 
@@ -185,73 +192,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) View() string {
 	return fmt.Sprintf(
-		"%s%s%s\n%s\n%s",
+		LAYOUT,
 		m.viewport.View(),
 		Gap,
-		func() string {
-			if !m.state.Waiting {
-				return lipgloss.
-					NewStyle().
-					Render(m.textarea.View())
-			}
-
-			spinnerText := map[bool]string{
-				true:  "Thinking",
-				false: "Generating",
-			}
-			return lipgloss.
-				NewStyle().
-				Faint(true).
-				Foreground(lipgloss.Color("#FFFFFF")).
-				Render(
-					fmt.Sprintf(
-						"%s  %s %s",
-						PromptPrefix,
-						spinnerText[m.state.Agent.Thinking],
-						m.spinner.View(),
-					),
-				)
-		}(),
-		lipgloss.
-			NewStyle().
-			PaddingLeft(4).
-			Render(
-				func() string {
-					inspecting := fmt.Sprintf(
-						"Currently inspecting: Agent %s",
-						func() string {
-							switch m.state.AgentMessageToShow {
-							case state.AgentMessageShowAnswers:
-								return "answers"
-							case state.AgentMessageShowThoughts:
-								return "thoughts"
-							default:
-								return "tool calls"
-							}
-						}(),
-					)
-					return lipgloss.
-						NewStyle().
-						Faint(true).
-						Foreground(lipgloss.Color("#FFFFFF")).
-						Render(
-							fmt.Sprintf(
-								"%s",
-								strings.Join(
-									[]string{
-										inspecting,
-									},
-									" | ",
-								),
-							),
-						)
-				}(),
-			),
-		lipgloss.
-			NewStyle().
-			PaddingLeft(4).
-			Render(
-				strings.Join(strings.Split(m.help.View(m.keys), "\r\n"), "   \n"),
-			),
+		m.PromptView(),
+		m.StatesView(),
+		m.HelpView(),
 	)
 }

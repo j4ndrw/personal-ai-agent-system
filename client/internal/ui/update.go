@@ -111,14 +111,6 @@ func (m *Model) ToInsertModeUpdate() (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m *Model) NewLineUpdate() (tea.Model, tea.Cmd) {
-	cmd, err := m.NewLineHandler()
-	if err != nil {
-		return m.ErrorUpdate(err)
-	}
-	return m, cmd
-}
-
 func (m *Model) ScrollToTopUpdate() (tea.Model, tea.Cmd) {
 	cmd, err := m.ScrollToTopHandler()
 	if err != nil {
@@ -129,6 +121,14 @@ func (m *Model) ScrollToTopUpdate() (tea.Model, tea.Cmd) {
 
 func (m *Model) ScrollToBottomUpdate() (tea.Model, tea.Cmd) {
 	cmd, err := m.ScrollToBottomHandler()
+	if err != nil {
+		return m.ErrorUpdate(err)
+	}
+	return m, cmd
+}
+
+func (m *Model) CycleChatModeUpdate() (tea.Model, tea.Cmd) {
+	cmd, err := m.CycleChatModeHandler()
 	if err != nil {
 		return m.ErrorUpdate(err)
 	}

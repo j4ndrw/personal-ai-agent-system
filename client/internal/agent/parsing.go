@@ -18,3 +18,11 @@ func (ac *AgentChunk) ParseAgentChunk(body *[]byte) error {
 	}
 	return nil
 }
+
+func (a *Agents) ParseAgents(body *[]byte) error {
+	err := json.Unmarshal(*body, &a)
+	if err != nil {
+		return err
+	}
+	return nil
+}

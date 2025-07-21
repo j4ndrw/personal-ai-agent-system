@@ -10,6 +10,7 @@ from src.utils import StatefulGenerator
 
 def create_chat_handler(
     *,
+    agent_name: str,
     tool_repository: ToolRepository | None = None
 ):
     def _chat(
@@ -29,7 +30,7 @@ def create_chat_handler(
         )
         for chunk in stream:
             if chunk.message.content:
-                yield f"{json.dumps({'id': str(uuid.uuid4()), 'type': 'answer', 'thinking': True if mark_as_thinking else think, 'content': chunk.message.content})}\n"
+                yield f"{json.dumps({'id': str(uuid.uuid4()), 'type': 'answer', 'thinking': True if mark_as_thinking else think, 'content': chunk.message.content, 'agent_name': agent_name})}\n"
                 final_message.content = (
                     final_message.content + chunk.message.content
                     if final_message.content
